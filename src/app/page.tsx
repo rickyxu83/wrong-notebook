@@ -35,6 +35,8 @@ function HomeContent() {
     const [pendingPages, setPendingPages] = useState<string[]>([]);
     // 本次分析的页面图（供确认页裁切/预览用）
     const [pageImages, setPageImages] = useState<string[]>([]);
+    // 分析失败的内联错误（不用 alert，墨水屏上弹窗体验差）
+    const [analyzeError, setAnalyzeError] = useState<string | null>(null);
     const [currentImage, setCurrentImage] = useState<string | null>(null);
     const { t, language } = useLanguage();
     const searchParams = useSearchParams();
@@ -82,6 +84,49 @@ function HomeContent() {
                 }
             })
             .catch(err => console.error("Failed to fetch config:", err));
+    }, []);
+
+    // 页面恢复：重新打开时如果有在跑/刚完成/刚失败的分析任务，恢复现场（黑屏、误刷新不丢进度）
+    useEffect(() => {
+        apiClient.get<{ job: any }>("/api/analyze/jobs?latest=1")
+            .then(async ({ job }) => {
+                if (!job || job.consumedAt) return;
+                // 30 分钟外的旧任务不管
+                if (Date.now() - new Date(job.createdAt).getTime() > 30 * 60 * 1000) return;
+
+                if (job.status === 'pending' || job.status === 'running') {
+                    const full = await apiClient.get<any>(`/api/analyze/jobs/${job.id}?includePages=1`);
+                    if (full.pages?.length) {
+                        setPendingPages(full.pages);
+                        setPageImages(full.pages);
+                        setCurrentImage(full.pages[0]);
+                    }
+                    setAnalysisStep('analyzing');
+                    pollAnalyzeJob(job.id, Date.now());
+                } else if (job.status === 'done') {
+                    const full = await apiClient.get<any>(`/api/analyze/jobs/${job.id}?includePages=1`);
+                    apiClient.post(`/api/analyze/jobs/${job.id}/consume`, {}).catch(() => { });
+                    if (full.pages?.length) {
+                        setPendingPages(full.pages);
+                        setPageImages(full.pages);
+                        setCurrentImage(full.pages[0]);
+                    }
+                    if (full.questions?.length) {
+                        handleAnalyzeResult(full.questions, Date.now());
+                    }
+                } else if (job.status === 'failed') {
+                    const full = await apiClient.get<any>(`/api/analyze/jobs/${job.id}?includePages=1`);
+                    apiClient.post(`/api/analyze/jobs/${job.id}/consume`, {}).catch(() => { });
+                    if (full.pages?.length) {
+                        setPendingPages(full.pages);
+                        setPageImages(full.pages);
+                        setCurrentImage(full.pages[0]);
+                    }
+                    setAnalyzeError(mapAnalyzeError(job.error || ''));
+                }
+            })
+            .catch(() => { /* 无任务或网络问题，忽略 */ });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // Simulate progress for smoother UX with timeout protection
@@ -143,165 +188,98 @@ function HomeContent() {
     /** 开始解析暂存的所有页（单页或多页） */
     const startAnalysis = () => {
         if (pendingPages.length === 0 || analysisStep !== 'idle') return;
+        setAnalyzeError(null);
         handleAnalyzePages(pendingPages);
+    };
+
+    /** 把 AI 错误码映射为可读文案 */
+    const mapAnalyzeError = (msg: string): string => {
+        if (!msg) return t.common?.messages?.analysisFailed || 'AI 分析失败，请重试';
+        if (t.errors && typeof t.errors === 'object' && msg in t.errors) {
+            const mapped = (t.errors as any)[msg];
+            if (typeof mapped === 'string') return mapped;
+        }
+        if (msg.startsWith('AI_')) return t.errors?.AI_UNKNOWN_ERROR || msg;
+        return msg;
     };
 
     const handleAnalyzePages = async (pages: string[]) => {
         const startTime = Date.now();
-        frontendLogger.info('[HomeAnalyze]', 'Starting analysis flow', {
-            timeoutSettings: {
-                apiTimeout: aiTimeout,
-                safetyTimeout
-            }
-        });
-
         try {
+            frontendLogger.info('[HomeAnalyze]', 'Submitting background analyze job', { pages: pages.length });
             setAnalysisStep('analyzing');
             setCurrentImage(pages[0]);
             setPageImages(pages);
-            frontendLogger.info('[HomeAnalyze]', 'Calling API endpoint /api/analyze', {
-                pages: pages.length
-            });
-            const apiStartTime = Date.now();
-            const data = await apiClient.post<AnalyzeResponse & { questions?: ParsedQuestion[] }>("/api/analyze", {
+
+            // 后台任务模式：服务端执行 AI 分析，浏览器黑屏/切后台/断网都不中断
+            const { jobId } = await apiClient.post<{ jobId: string }>("/api/analyze/jobs", {
                 images: pages, // 多页一次调用，AI 可关联跨页题目
                 language: language,
                 subjectId: initialNotebookId || autoSelectedNotebookId || undefined,
-                grade: true // 扫描统一走批改能力分析：自动识别有无作答笔迹，有则逐题判对错（超集，未作答卷退化为普通拆分）
-            }, { timeout: Math.min(aiTimeout * pages.length, 600000) }); // 多页更慢，超时按页数放大（上限 10 分钟）
-            const apiDuration = Date.now() - apiStartTime;
-            frontendLogger.info('[HomeAnalyze]', 'API response received, validating data', {
-                apiDuration
             });
-
-            // Validate response data
-            if (!data || typeof data !== 'object') {
-                frontendLogger.error('[HomeAnalyze]', 'Validation failed - invalid response data', {
-                    data
-                });
-                throw new Error('Invalid API response: data is null or not an object');
-            }
-            frontendLogger.info('[HomeAnalyze]', 'Response data validated successfully');
-
-            frontendLogger.info('[HomeAnalyze]', 'Step 3/5: Setting processing state and progress to 100%');
-            setAnalysisStep('processing');
-            setProgress(100);
-            frontendLogger.info('[HomeAnalyze]', 'Progress updated to 100%');
-
-            frontendLogger.info('[HomeAnalyze]', 'Step 4/5: Setting parsed data and auto-selecting notebook');
-            // 整卷拆分：识别出多道题 → 批量确认页；一道题 → 原有单题校对流程
-            const questions = data.questions;
-            if (questions && questions.length > 1) {
-                const first = questions[0];
-                if (first.subject) {
-                    const matchedNotebook = notebooks.find(n =>
-                        n.name.includes(first.subject!) || first.subject!.includes(n.name)
-                    );
-                    if (matchedNotebook) {
-                        setAutoSelectedNotebookId(matchedNotebook.id);
-                    }
-                }
-                setAnalysisStep('processing');
-                setProgress(100);
-                setParsedQuestions(questions);
-                setStep("multi-review");
-                frontendLogger.info('[HomeAnalyze]', 'Multi-question detected, entering multi-review', {
-                    count: questions.length,
-                    totalDuration: Date.now() - startTime
-                });
-                return;
-            }
-            const singleData: ParsedQuestion = questions?.[0] ?? data;
-
-            const dataSize = JSON.stringify(singleData).length;
-            // Auto-select notebook based on subject
-            if (singleData.subject) {
-                const matchedNotebook = notebooks.find(n =>
-                    n.name.includes(singleData.subject!) || singleData.subject!.includes(n.name)
-                );
-                if (matchedNotebook) {
-                    setAutoSelectedNotebookId(matchedNotebook.id);
-                    frontendLogger.info('[HomeAnalyze]', 'Auto-selected notebook', {
-                        notebook: matchedNotebook.name,
-                        subject: singleData.subject
-                    });
-                }
-            }
-            const setDataStart = Date.now();
-            setParsedData(singleData);
-            const setDataDuration = Date.now() - setDataStart;
-            frontendLogger.info('[HomeAnalyze]', 'Parsed data set successfully', {
-                dataSize,
-                setDataDuration
-            });
-
-            frontendLogger.info('[HomeAnalyze]', 'Step 5/5: Switching to review page');
-            const setStepStart = Date.now();
-            setStep("review");
-            const setStepDuration = Date.now() - setStepStart;
-            frontendLogger.info('[HomeAnalyze]', 'Step switched to review', {
-                setStepDuration
-            });
-            const totalDuration = Date.now() - startTime;
-            frontendLogger.info('[HomeAnalyze]', 'Analysis completed successfully', {
-                totalDuration
-            });
+            frontendLogger.info('[HomeAnalyze]', 'Analyze job created', { jobId, pages: pages.length });
+            pollAnalyzeJob(jobId, startTime);
         } catch (error: any) {
-            const errorDuration = Date.now() - startTime;
-            frontendLogger.error('[HomeError]', 'Analysis failed', {
-                errorDuration,
-                error: error.message || String(error)
-            });
-
-            // 安全的错误处理逻辑，防止在报错时二次报错
-            try {
-                let errorMessage = t.common?.messages?.analysisFailed || 'Analysis failed, please try again';
-
-                // ApiError 的结构：error.data.message 包含后端返回的错误类型
-                const backendErrorType = error?.data?.message;
-
-                if (backendErrorType && typeof backendErrorType === 'string') {
-                    // 检查是否是已知的 AI 错误类型
-                    if (t.errors && typeof t.errors === 'object' && backendErrorType in t.errors) {
-                        const mappedError = (t.errors as any)[backendErrorType];
-                        if (typeof mappedError === 'string') {
-                            errorMessage = mappedError;
-                            frontendLogger.info('[HomeError]', `Matched error type: ${backendErrorType}`, {
-                                errorMessage
-                            });
-                        }
-                    } else {
-                        // 使用后端返回的具体错误消息
-                        errorMessage = backendErrorType;
-                        frontendLogger.info('[HomeError]', 'Using backend error message', {
-                            errorMessage
-                        });
-                    }
-                } else if (error?.message) {
-                    // Fallback：检查 error.message（用于非 API 错误）
-                    if (error.message.includes('fetch') || error.message.includes('network')) {
-                        errorMessage = t.errors?.AI_CONNECTION_FAILED || '网络连接失败';
-                    } else if (typeof error.data === 'string') {
-                        frontendLogger.info('[HomeError]', 'Raw error data', {
-                            errorDataPreview: error.data.substring(0, 100)
-                        });
-                        errorMessage += ` (${error.status || 'Error'})`;
-                    }
-                }
-
-                alert(errorMessage);
-            } catch (innerError) {
-                frontendLogger.error('[HomeError]', 'Failed to process error message', {
-                    innerError: String(innerError)
-                });
-                alert('Analysis failed. Please try again.');
-            }
-        } finally {
-            // Always reset analysis state, even if setState throws
-            frontendLogger.info('[HomeAnalyze]', 'Finally: Resetting analysis state to idle');
+            frontendLogger.error('[HomeError]', 'Failed to create analyze job', { error: error?.message });
             setAnalysisStep('idle');
-            frontendLogger.info('[HomeAnalyze]', 'Analysis state reset complete');
+            setAnalyzeError(mapAnalyzeError(error?.data?.message || error?.message || ''));
         }
+    };
+
+    /** 轮询分析任务；单次失败（黑屏恢复等）下个周期自动重试 */
+    const pollAnalyzeJob = (jobId: string, startTime: number) => {
+        const timer = setInterval(async () => {
+            try {
+                const job = await apiClient.get<any>(`/api/analyze/jobs/${jobId}`);
+                if (job.status === 'done' && job.questions) {
+                    clearInterval(timer);
+                    apiClient.post(`/api/analyze/jobs/${jobId}/consume`, {}).catch(() => { });
+                    handleAnalyzeResult(job.questions, startTime);
+                } else if (job.status === 'failed') {
+                    clearInterval(timer);
+                    apiClient.post(`/api/analyze/jobs/${jobId}/consume`, {}).catch(() => { });
+                    setAnalysisStep('idle');
+                    setAnalyzeError(mapAnalyzeError(job.error || ''));
+                }
+            } catch (e) {
+                console.warn('[HomeAnalyze] poll failed, retrying', e);
+            }
+        }, 3000);
+    };
+
+    /** 分析结果分流：多题 → 批量确认页；单题 → 单题校对页 */
+    const handleAnalyzeResult = (questions: ParsedQuestion[], startTime: number) => {
+        frontendLogger.info('[HomeAnalyze]', 'Job done, routing result', {
+            count: questions.length,
+            totalDuration: Date.now() - startTime,
+        });
+        setAnalysisStep('processing');
+        setProgress(100);
+
+        // 按第一题学科自动匹配笔记本
+        const first = questions[0];
+        if (first?.subject) {
+            const matchedNotebook = notebooks.find(n =>
+                n.name.includes(first.subject!) || first.subject!.includes(n.name)
+            );
+            if (matchedNotebook) {
+                setAutoSelectedNotebookId(matchedNotebook.id);
+            }
+        }
+
+        if (questions.length > 1) {
+            setParsedQuestions(questions);
+            setStep("multi-review");
+            return;
+        }
+        if (questions.length === 1) {
+            setParsedData(questions[0]);
+            setStep("review");
+            return;
+        }
+        // 一道题都没识别出来
+        setAnalysisStep('idle');
+        setAnalyzeError(t.errors?.AI_RESPONSE_ERROR || 'AI 分析失败，请重试');
     };
 
     const handleSave = async (finalData: ParsedQuestion & { subjectId?: string }): Promise<void> => {
@@ -630,6 +608,21 @@ function HomeContent() {
                         {inputMode === "image" ? (
                             <>
                                 <UploadZone onImageSelect={onImageSelect} onImagesSelect={onImagesSelect} isAnalyzing={analysisStep !== 'idle'} />
+
+                                {/* 分析失败的内联错误条（不用 alert，黑屏/墨水屏友好） + 一键重试 */}
+                                {analyzeError && (
+                                    <div className="mt-4 p-3 border border-destructive/50 rounded-lg bg-destructive/10 text-sm flex items-center justify-between gap-3">
+                                        <span className="text-destructive">{analyzeError}</span>
+                                        <div className="flex gap-2 shrink-0">
+                                            <Button variant="outline" size="sm" onClick={() => setAnalyzeError(null)}>
+                                                {t.common?.cancel || "关闭"}
+                                            </Button>
+                                            <Button size="sm" onClick={startAnalysis} disabled={pendingPages.length === 0}>
+                                                {t.common?.retry || "重试"}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )}
 
                                 {/* 连续扫描暂存条：多页试卷逐页添加，最后一并解析 */}
                                 {pendingPages.length > 0 && (
