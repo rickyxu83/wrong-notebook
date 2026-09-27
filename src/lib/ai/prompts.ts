@@ -148,6 +148,7 @@ export const DEFAULT_ANALYZE_TEMPLATE = `【角色与核心任务 (ROLE AND CORE
 
 <question_text>
 在此处填写题目的完整文本。使用 Markdown 格式。所有数学公式使用 LaTeX 符号（行内 $...$，块级 $$...$$）。
+注意：简单的数字与单位（如 0.4 s、340 m/s）直接用普通文本，不要包 LaTeX；只有真正的公式（分式、根号、上下标、方程）才用 LaTeX。
 
 【表格处理规则】
 如果图片中包含表格，必须完整转录表格内容，遵循以下原则：
@@ -266,7 +267,7 @@ export const DEFAULT_ANALYZE_MULTI_TEMPLATE = `【角色与核心任务 (ROLE AN
 </page>
 
 <question_text>
-在此处填写本题的完整文本（保留原题号，如“8.”）。使用 Markdown 格式。所有数学公式使用 LaTeX 符号（行内 $...$，块级 $$...$$）。如果本题包含表格或子问题，必须完整转录。
+在此处填写本题的完整文本（保留原题号，如“8.”）。使用 Markdown 格式。所有数学公式使用 LaTeX 符号（行内 $...$，块级 $$...$$）。如果本题包含表格或子问题，必须完整转录。注意：简单的数字与单位（如 0.4 s、340 m/s）直接用普通文本，不要包 LaTeX；只有真正的公式（分式、根号、上下标、方程）才用 LaTeX。
 </question_text>
 
 <answer_text>
@@ -336,7 +337,7 @@ export const DEFAULT_GRADE_TEMPLATE = `【角色与核心任务 (ROLE AND CORE T
 </page>
 
 <question_text>
-在此处填写本题的完整文本（保留原题号，如“8.”）。使用 Markdown 格式。所有数学公式使用 LaTeX 符号（行内 $...$，块级 $$...$$）。如果本题包含表格或子问题，必须完整转录。
+在此处填写本题的完整文本（保留原题号，如“8.”）。使用 Markdown 格式。所有数学公式使用 LaTeX 符号（行内 $...$，块级 $$...$$）。如果本题包含表格或子问题，必须完整转录。注意：简单的数字与单位（如 0.4 s、340 m/s）直接用普通文本，不要包 LaTeX；只有真正的公式（分式、根号、上下标、方程）才用 LaTeX。
 </question_text>
 
 <student_answer>
