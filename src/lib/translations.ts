@@ -305,6 +305,15 @@ export const translations = {
             empty: "No questions yet",
             createFailed: "Failed to create paper. Please try again.",
         },
+        multiReview: {
+            title: "{count} questions detected",
+            subtitle: "Review each question, uncheck any you don't want to import",
+            notebook: "Save to notebook",
+            questionNumber: "Q{index}",
+            saveAll: "Save {count} questions",
+            saving: "Saving {current}/{total}...",
+            saved: "{count} questions saved!",
+        },
         tags: {
             title: "Tag Management",
             subtitle: "View and manage knowledge point tags",
@@ -993,6 +1002,15 @@ export const translations = {
             answerArea: "作答区：",
             empty: "还没有题目",
             createFailed: "创建试卷失败，请重试。",
+        },
+        multiReview: {
+            title: "识别到 {count} 道题",
+            subtitle: "逐题核对内容，不需要导入的取消勾选",
+            notebook: "保存到错题本",
+            questionNumber: "第 {index} 题",
+            saveAll: "保存 {count} 道错题",
+            saving: "保存中 {current}/{total}...",
+            saved: "已保存 {count} 道错题！",
         },
         tags: {
             title: "标签管理",

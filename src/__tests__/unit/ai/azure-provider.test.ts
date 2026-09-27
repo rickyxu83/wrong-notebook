@@ -62,6 +62,7 @@ import type { ParsedQuestion } from '@/lib/ai/types';
 
 type PrivateAzureProvider = {
     parseResponse(text: string): ParsedQuestion;
+    parseResponseMulti(text: string): ParsedQuestion[];
     extractTag(text: string, tagName: string): string | null;
     handleError(error: unknown): never;
 };
@@ -343,6 +344,66 @@ describe('Azure OpenAI Provider 响应解析', () => {
             `.trim();
 
             expect(() => asPrivateProvider(provider).parseResponse(mockResponse)).toThrow('Missing critical XML tags');
+        });
+    });
+
+    describe('parseResponseMulti（整卷拆分）', () => {
+        it('应该按 <question> 块拆分并逐块解析', () => {
+            const mockResponse = `
+<question>
+<question_text>8. 求 2x + 3 = 7</question_text>
+<answer_text>x = 2</answer_text>
+<analysis>移项后计算。</analysis>
+<subject>数学</subject>
+</question>
+<question>
+<question_text>10. 声音在空气中的速度是多少</question_text>
+<answer_text>340 m/s</answer_text>
+<analysis>常识题。</analysis>
+<subject>物理</subject>
+</question>
+            `.trim();
+
+            const results = asPrivateProvider(provider).parseResponseMulti(mockResponse);
+
+            expect(results).toHaveLength(2);
+            expect(results[0].questionText).toContain('2x + 3 = 7');
+            expect(results[0].subject).toBe('数学');
+            expect(results[1].questionText).toContain('声音');
+            expect(results[1].subject).toBe('物理');
+        });
+
+        it('没有 <question> 块时回退为单题解析', () => {
+            const mockResponse = `
+<question_text>求函数 f(x) = x^2 的最小值</question_text>
+<answer_text>最小值为 0</answer_text>
+<analysis>二次函数开口向上。</analysis>
+            `.trim();
+
+            const results = asPrivateProvider(provider).parseResponseMulti(mockResponse);
+
+            expect(results).toHaveLength(1);
+            expect(results[0].questionText).toContain('最小值');
+        });
+
+        it('无效块应跳过，全部无效时报错', () => {
+            const mixedResponse = `
+<question>
+<question_text>只有题干没有答案</question_text>
+</question>
+<question>
+<question_text>9. 完整题目</question_text>
+<answer_text>答案</answer_text>
+<analysis>解析</analysis>
+</question>
+            `.trim();
+
+            const results = asPrivateProvider(provider).parseResponseMulti(mixedResponse);
+            expect(results).toHaveLength(1);
+            expect(results[0].questionText).toContain('完整题目');
+
+            expect(() => asPrivateProvider(provider).parseResponseMulti('<question><question_text>残缺</question_text></question>'))
+                .toThrow('AI_RESPONSE_ERROR');
         });
     });
 

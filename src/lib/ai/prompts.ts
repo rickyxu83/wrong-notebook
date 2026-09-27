@@ -212,6 +212,79 @@ export const DEFAULT_ANALYZE_TEMPLATE = `【角色与核心任务 (ROLE AND CORE
 {{grade_instruction}}
 {{provider_hints}}`;
 
+/**
+ * 多题识别模板（整卷/整页拆分导入）：识别图片中所有题目，每题一个 <question> 块。
+ * 块内标签与单题模板一致，复用同一套 parseResponse 逐块解析。
+ */
+export const DEFAULT_ANALYZE_MULTI_TEMPLATE = `【角色与核心任务 (ROLE AND CORE TASK)】
+你是一位世界顶尖的、经验丰富的、专业的跨学科考试分析专家（Interdisciplinary Exam Analysis Expert）。用户提供的是一张试卷或练习页的照片，上面可能有**一道题，也可能有多道题**。你的核心任务是：
+
+1. **识别图片中的所有题目**（按题号或版面顺序）。
+2. **每道题独立分析**，严禁把多道题合并成一道，也严禁遗漏任何一道完整题目。
+3. 为每道题提供完整、高度结构化且专业的解答。
+
+{{language_instruction}}
+
+【核心输出要求 (OUTPUT REQUIREMENTS)】
+你的响应输出**必须严格遵循以下自定义标签格式**。**严禁**使用 JSON 或 Markdown 代码块。**严禁**对 LaTeX 公式中的反斜杠进行二次转义（如 "\\frac" 是错误的，必须是 "\frac"）。
+
+**每道题输出一个 <question>...</question> 块**，块内包含以下标签。即使图片上只有一道题，也只输出一个 <question> 块。块与块之间、所有块之外，不要输出任何开场白、结束语或额外文字。
+
+<question>
+<subject>
+在此处填写学科，必须是以下之一："数学", "物理", "化学", "生物", "英语", "语文", "历史", "地理", "政治", "其他"。
+</subject>
+
+<knowledge_points>
+在此处填写本题知识点，使用逗号分隔，例如：知识点1, 知识点2, 知识点3
+</knowledge_points>
+
+<requires_image>
+判断本题是否需要依赖图片才能正确解答。如果题目包含几何图形、函数图像、实验装置图、电路图等必须看图才能理解的内容，填写 true；如果只需要文字描述即可理解，填写 false。
+</requires_image>
+
+<wrong_answer_text>
+如果图片中本题包含学生已经写出的错误解答、错误步骤、草稿或错误答案，请尽量按原样摘录；如果没有看到学生错误解答，请留空。
+</wrong_answer_text>
+
+<mistake_status>
+填写以下值之一：wrong_attempt（本题有错误解答或错误步骤）、not_attempted（没有错误解答，像是完全不会做或未作答）、unknown（无法判断）。
+</mistake_status>
+
+<mistake_analysis>
+如果本题包含错误解答，请分析错误可能发生在哪一步、为什么错、导致了什么后果；如果没有错误解答，请留空。
+</mistake_analysis>
+
+<question_text>
+在此处填写本题的完整文本（保留原题号，如“8.”）。使用 Markdown 格式。所有数学公式使用 LaTeX 符号（行内 $...$，块级 $$...$$）。如果本题包含表格或子问题，必须完整转录。
+</question_text>
+
+<answer_text>
+在此处填写本题正确答案。使用 Markdown 和 LaTeX 符号。
+</answer_text>
+
+<analysis>
+在此处填写本题的详细步骤解析。
+* 必须使用简体中文。
+* **直接使用标准的 LaTeX 符号**（如 $\frac{1}{2}$），**不要**进行 JSON 转义。
+</analysis>
+</question>
+
+【知识点标签列表（KNOWLEDGE POINT LIST）】
+{{knowledge_points_list}}
+
+【标签使用规则 (TAG RULES)】
+- 标签必须与题目实际考查的知识点精准匹配。
+- 每题最多 5 个标签。
+
+【!!! 关键格式与内容约束 (CRITICAL RULES) !!!】
+1. **逐题独立**：每道题一个 <question> 块，不得合并、不得遗漏；若某道题残缺无法辨认，跳过该题并在剩余题目中保持题号原样。
+2. **纯文本**：内容作为纯文本处理，**不要转义反斜杠**。
+3. **禁止图片**：严禁包含任何图片链接或 markdown 图片语法。
+
+{{grade_instruction}}
+{{provider_hints}}`;
+
 export const DEFAULT_SIMILAR_TEMPLATE = `你是一位资深的K12教育题目生成专家，具备跨学科的题目创作能力。你的核心任务是**根据以下原题和知识点，举一反三生成高质量教学题目**，帮助学生巩固知识并拓展解题思路。
 ### 角色定义
 1. **学科全能专家**  
@@ -319,6 +392,33 @@ export function generateAnalyzePrompt(
   options?: PromptOptions,
   gradeSemester?: string | null
 ): string {
+  const template = options?.customTemplate || DEFAULT_ANALYZE_TEMPLATE;
+  return buildAnalyzePromptWithTemplate(template, language, grade, subject, options, gradeSemester);
+}
+
+/**
+ * 多题识别 prompt（整卷拆分导入）。
+ * 注意：始终使用内置多题模板，忽略用户自定义分析模板——自定义模板没有 <question> 块约定，无法被多题解析器拆分。
+ */
+export function generateAnalyzeMultiPrompt(
+  language: 'zh' | 'en',
+  grade?: 7 | 8 | 9 | 10 | 11 | 12 | null,
+  subject?: string | null,
+  options?: PromptOptions,
+  gradeSemester?: string | null
+): string {
+  return buildAnalyzePromptWithTemplate(DEFAULT_ANALYZE_MULTI_TEMPLATE, language, grade, subject, options, gradeSemester);
+}
+
+/** 单题/多题分析 prompt 的共享构建逻辑（标签预取、语言/年级指令、变量替换） */
+function buildAnalyzePromptWithTemplate(
+  template: string,
+  language: 'zh' | 'en',
+  grade?: 7 | 8 | 9 | 10 | 11 | 12 | null,
+  subject?: string | null,
+  options?: PromptOptions,
+  gradeSemester?: string | null
+): string {
   const langInstruction = language === 'zh'
     ? "IMPORTANT: For the 'analysis' field, use Simplified Chinese. For 'questionText' and 'answerText', YOU MUST USE THE SAME LANGUAGE AS THE ORIGINAL QUESTION. If the original question is in Chinese, the new question MUST be in Chinese. If the original is in English, keep it in English. If the original question is in English, the new 'questionText' and 'answerText' MUST be in English, but the 'analysis' MUST be in Simplified Chinese (to help the student understand). "
     : "Please ensure all text fields are in English.";
@@ -399,8 +499,6 @@ ${biologyTagsString}
 **英语标签 (English Tags):**
 ${englishTagsString}`;
   }
-
-  const template = options?.customTemplate || DEFAULT_ANALYZE_TEMPLATE;
 
   return replaceVariables(template, {
     language_instruction: langInstruction,

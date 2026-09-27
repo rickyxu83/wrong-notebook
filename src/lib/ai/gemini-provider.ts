@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { AIService, ParsedQuestion, DifficultyLevel, AIConfig, ReanswerQuestionResult, GeogebraAnalysisResult } from "./types";
-import { generateAnalyzePrompt, generateSimilarQuestionPrompt, generateGeogebraPrompt } from './prompts';
+import { generateAnalyzePrompt, generateAnalyzeMultiPrompt, generateSimilarQuestionPrompt, generateGeogebraPrompt } from './prompts';
 import { safeParseParsedQuestion } from './schema';
 import { getAppConfig } from '../config';
 import { getMathTagsFromDB, getTagsFromDB } from './tag-service';
@@ -158,7 +158,37 @@ export class GeminiProvider implements AIService {
         }
     }
 
+    /** 多题解析：按 <question> 块拆分，逐块走单题解析；无块时回退整段单题解析 */
+    private parseResponseMulti(text: string): ParsedQuestion[] {
+        const blocks = text.split(/<question>/i).slice(1).map((b) => b.split(/<\/question>/i)[0]);
+        if (blocks.length === 0) {
+            logger.warn('Multi-parse: no <question> blocks found, falling back to single-question parse');
+            return [this.parseResponse(text)];
+        }
+        const results: ParsedQuestion[] = [];
+        for (const block of blocks) {
+            try {
+                results.push(this.parseResponse(block));
+            } catch (e) {
+                logger.warn({ error: e instanceof Error ? e.message : String(e) }, 'Multi-parse: skipping invalid question block');
+            }
+        }
+        if (results.length === 0) {
+            throw new Error("AI_RESPONSE_ERROR: No valid question blocks in multi-question response");
+        }
+        logger.info({ count: results.length }, 'Multi-parse completed');
+        return results;
+    }
+
     async analyzeImage(imageBase64: string, mimeType: string = "image/jpeg", language: 'zh' | 'en' = 'zh', grade?: 7 | 8 | 9 | 10 | 11 | 12 | null, subject?: string | null, gradeSemester?: string | null): Promise<ParsedQuestion> {
+        return this.analyzeImageInternal(imageBase64, mimeType, language, grade, subject, gradeSemester, false) as Promise<ParsedQuestion>;
+    }
+
+    async analyzeImageMulti(imageBase64: string, mimeType: string = "image/jpeg", language: 'zh' | 'en' = 'zh', grade?: 7 | 8 | 9 | 10 | 11 | 12 | null, subject?: string | null, gradeSemester?: string | null): Promise<ParsedQuestion[]> {
+        return this.analyzeImageInternal(imageBase64, mimeType, language, grade, subject, gradeSemester, true) as Promise<ParsedQuestion[]>;
+    }
+
+    private async analyzeImageInternal(imageBase64: string, mimeType: string = "image/jpeg", language: 'zh' | 'en' = 'zh', grade?: 7 | 8 | 9 | 10 | 11 | 12 | null, subject?: string | null, gradeSemester?: string | null, multi: boolean = false): Promise<ParsedQuestion | ParsedQuestion[]> {
         const config = getAppConfig();
 
         // 从数据库获取各学科标签
@@ -168,7 +198,7 @@ export class GeminiProvider implements AIService {
         const prefetchedBiologyTags = (subject === '生物' || !subject) ? await getTagsFromDB('biology') : [];
         const prefetchedEnglishTags = (subject === '英语' || !subject) ? await getTagsFromDB('english') : [];
 
-        const prompt = generateAnalyzePrompt(language, grade, subject, {
+        const prompt = (multi ? generateAnalyzeMultiPrompt : generateAnalyzePrompt)(language, grade, subject, {
             customTemplate: config.prompts?.analyze,
             prefetchedMathTags,
             prefetchedPhysicsTags,
@@ -231,7 +261,7 @@ export class GeminiProvider implements AIService {
             logger.box('🤖 AI Raw Response', text);
 
             if (!text) throw new Error("Empty response from AI");
-            const parsedResult = this.parseResponse(text);
+            const parsedResult = multi ? this.parseResponseMulti(text) : this.parseResponse(text);
 
             logger.box('✅ Parsed & Validated Result', JSON.stringify(parsedResult, null, 2));
 

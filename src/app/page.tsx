@@ -22,12 +22,15 @@ import { ProgressFeedback, ProgressStatus } from "@/components/ui/progress-feedb
 import { frontendLogger } from "@/lib/frontend-logger";
 import { TextInputZone } from "@/components/text-input-zone";
 import { DirectTextEditor } from "@/components/direct-text-editor";
+import { MultiQuestionReview } from "@/components/multi-question-review";
 
 function HomeContent() {
-    const [step, setStep] = useState<"upload" | "review">("upload");
+    const [step, setStep] = useState<"upload" | "review" | "multi-review">("upload");
     const [analysisStep, setAnalysisStep] = useState<ProgressStatus>('idle');
     const [progress, setProgress] = useState(0);
     const [parsedData, setParsedData] = useState<ParsedQuestion | null>(null);
+    // 整卷拆分：AI 识别出多道题时进入批量确认页
+    const [parsedQuestions, setParsedQuestions] = useState<ParsedQuestion[]>([]);
     const [currentImage, setCurrentImage] = useState<string | null>(null);
     const { t, language } = useLanguage();
     const searchParams = useSearchParams();
@@ -136,10 +139,11 @@ function HomeContent() {
             frontendLogger.info('[HomeAnalyze]', 'Step 2/5: Calling API endpoint /api/analyze');
             setAnalysisStep('analyzing');
             const apiStartTime = Date.now();
-            const data = await apiClient.post<AnalyzeResponse>("/api/analyze", {
+            const data = await apiClient.post<AnalyzeResponse & { questions?: ParsedQuestion[] }>("/api/analyze", {
                 imageBase64: base64Image,
                 language: language,
-                subjectId: initialNotebookId || autoSelectedNotebookId || undefined
+                subjectId: initialNotebookId || autoSelectedNotebookId || undefined,
+                multi: true // 整卷拆分：AI 识别图片中所有题目，一道题也会返回单元素数组
             }, { timeout: aiTimeout }); // Use configured timeout
             const apiDuration = Date.now() - apiStartTime;
             frontendLogger.info('[HomeAnalyze]', 'API response received, validating data', {
@@ -161,22 +165,46 @@ function HomeContent() {
             frontendLogger.info('[HomeAnalyze]', 'Progress updated to 100%');
 
             frontendLogger.info('[HomeAnalyze]', 'Step 4/5: Setting parsed data and auto-selecting notebook');
-            const dataSize = JSON.stringify(data).length;
+            // 整卷拆分：识别出多道题 → 批量确认页；一道题 → 原有单题校对流程
+            const questions = data.questions;
+            if (questions && questions.length > 1) {
+                const first = questions[0];
+                if (first.subject) {
+                    const matchedNotebook = notebooks.find(n =>
+                        n.name.includes(first.subject!) || first.subject!.includes(n.name)
+                    );
+                    if (matchedNotebook) {
+                        setAutoSelectedNotebookId(matchedNotebook.id);
+                    }
+                }
+                setAnalysisStep('processing');
+                setProgress(100);
+                setParsedQuestions(questions);
+                setStep("multi-review");
+                frontendLogger.info('[HomeAnalyze]', 'Multi-question detected, entering multi-review', {
+                    count: questions.length,
+                    totalDuration: Date.now() - startTime
+                });
+                return;
+            }
+            const singleData: ParsedQuestion = questions?.[0] ?? data;
+
+            const dataSize = JSON.stringify(singleData).length;
             // Auto-select notebook based on subject
-            if (data.subject) {
+            if (singleData.subject) {
                 const matchedNotebook = notebooks.find(n =>
-                    n.name.includes(data.subject!) || data.subject!.includes(n.name)
+                    n.name.includes(singleData.subject!) || singleData.subject!.includes(n.name)
                 );
                 if (matchedNotebook) {
                     setAutoSelectedNotebookId(matchedNotebook.id);
                     frontendLogger.info('[HomeAnalyze]', 'Auto-selected notebook', {
                         notebook: matchedNotebook.name,
-                        subject: data.subject
+                        subject: singleData.subject
                     });
                 }
             }
             const setDataStart = Date.now();
-            setParsedData(data);
+            setParsedData(singleData);
             const setDataDuration = Date.now() - setDataStart;
             frontendLogger.info('[HomeAnalyze]', 'Parsed data set successfully', {
                 dataSize,
@@ -604,6 +632,28 @@ function HomeContent() {
                         imagePreview={currentImage}
                         initialSubjectId={initialNotebookId || autoSelectedNotebookId || undefined}
                         aiTimeout={aiTimeout}
+                    />
+                )}
+
+                {step === "multi-review" && parsedQuestions.length > 0 && (
+                    <MultiQuestionReview
+                        questions={parsedQuestions}
+                        imagePreview={currentImage}
+                        defaultSubjectId={initialNotebookId || autoSelectedNotebookId || undefined}
+                        onCancel={() => {
+                            setStep("upload");
+                            setParsedQuestions([]);
+                            setCurrentImage(null);
+                        }}
+                        onSaved={(count, subjectId) => {
+                            setStep("upload");
+                            setParsedQuestions([]);
+                            setCurrentImage(null);
+                            alert((t.multiReview?.saved || "已保存 {count} 道错题！").replace("{count}", String(count)));
+                            if (subjectId) {
+                                router.push(`/notebooks/${subjectId}`);
+                            }
+                        }}
                     />
                 )}
 
