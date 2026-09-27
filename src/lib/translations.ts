@@ -313,6 +313,9 @@ export const translations = {
             saveAll: "Save {count} questions",
             saving: "Saving {current}/{total}...",
             saved: "{count} questions saved!",
+            showCutLines: "Adjust image cropping",
+            hideCutLines: "Hide image cropping",
+            cutHint: "Drag the red lines to adjust each question's crop region",
         },
         tags: {
             title: "Tag Management",
@@ -1011,6 +1014,9 @@ export const translations = {
             saveAll: "保存 {count} 道错题",
             saving: "保存中 {current}/{total}...",
             saved: "已保存 {count} 道错题！",
+            showCutLines: "调整图片裁切",
+            hideCutLines: "收起图片裁切",
+            cutHint: "拖动红线调整每道题的裁切范围",
         },
         tags: {
             title: "标签管理",

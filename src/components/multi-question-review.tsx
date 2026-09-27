@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -11,7 +11,8 @@ import { InlineMath } from "@/components/inline-math";
 import { Loader2, Save, X } from "lucide-react";
 import { ParsedQuestion } from "@/lib/ai";
 import { apiClient } from "@/lib/api-client";
-import { cropQuestionsFromPage } from "@/lib/image-utils";
+import { cropByBoundaries, computeQuestionBoundaries } from "@/lib/image-utils";
+import { PageCutEditor } from "@/components/page-cut-editor";
 import { useLanguage } from "@/contexts/LanguageContext";
 
 interface EditableQuestion extends ParsedQuestion {
@@ -36,6 +37,23 @@ export function MultiQuestionReview({ questions, imagePreview, defaultSubjectId,
     const [notebookId, setNotebookId] = useState<string | null>(defaultSubjectId || null);
     const [saving, setSaving] = useState(false);
     const [saveProgress, setSaveProgress] = useState(0);
+    // 图片切线（归一化 0-1，N+1 条）：null = 不切分，共用整页原图
+    const [boundaries, setBoundaries] = useState<number[] | null>(null);
+    const [showCutEditor, setShowCutEditor] = useState(false);
+
+    // 挂载后自动计算建议切线（AI bbox 提示 + 空白带精修）
+    useEffect(() => {
+        if (!imagePreview || questions.length < 2) return;
+        const boxes = questions.map((q) => q.bbox as [number, number, number, number] | undefined);
+        if (!boxes.some(Boolean)) return;
+        computeQuestionBoundaries(imagePreview, boxes).then((b) => {
+            if (b && b.length === questions.length + 1) {
+                setBoundaries(b);
+                setShowCutEditor(true);
+            }
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const patch = (index: number, p: Partial<EditableQuestion>) =>
         setItems((prev) => prev.map((q, i) => (i === index ? { ...q, ...p } : q)));
@@ -49,14 +67,11 @@ export function MultiQuestionReview({ questions, imagePreview, defaultSubjectId,
         setSaveProgress(0);
         try {
             let done = 0;
-            // 整卷拆分：用全部题的 bbox 做整页分段（未勾选的题也占位），再逐题取裁切结果
+            // 整卷拆分：按（可能被用户调整过的）切线逐题裁图；无切线时共用整页原图
             let crops: string[] | null = null;
-            if (imagePreview && items.some((q) => q.bbox)) {
+            if (imagePreview && boundaries && boundaries.length === items.length + 1) {
                 try {
-                    crops = await cropQuestionsFromPage(
-                        imagePreview,
-                        items.map((q) => q.bbox as [number, number, number, number] | undefined)
-                    );
+                    crops = await cropByBoundaries(imagePreview, boundaries);
                 } catch {
                     crops = null; // 失败回退整页原图
                 }
@@ -107,14 +122,35 @@ export function MultiQuestionReview({ questions, imagePreview, defaultSubjectId,
                 </div>
             </div>
 
-            {imagePreview && (
+            {/* 图片裁切：有自动切线时可拖拽调整；无切线时仅查看原图 */}
+            {imagePreview && boundaries ? (
+                <div className="space-y-2">
+                    <button
+                        type="button"
+                        className="text-sm text-muted-foreground underline underline-offset-2"
+                        onClick={() => setShowCutEditor(!showCutEditor)}
+                    >
+                        {showCutEditor
+                            ? (t.multiReview?.hideCutLines || "收起图片裁切")
+                            : (t.multiReview?.showCutLines || "调整图片裁切")}
+                    </button>
+                    {showCutEditor && (
+                        <>
+                            <p className="text-xs text-muted-foreground text-center">
+                                {t.multiReview?.cutHint || "拖动红线调整每道题的裁切范围"}
+                            </p>
+                            <PageCutEditor imageUrl={imagePreview} boundaries={boundaries} onChange={setBoundaries} />
+                        </>
+                    )}
+                </div>
+            ) : imagePreview ? (
                 <details className="text-center">
                     <summary className="text-sm text-muted-foreground cursor-pointer">
                         {t.detail?.originalProblem || "查看原图"}
                     </summary>
                     <img src={imagePreview} alt="original" className="mt-2 mx-auto max-h-96 rounded-lg border" />
                 </details>
-            )}
+            ) : null}
 
             <div className="space-y-4">
                 {items.map((q, i) => (
