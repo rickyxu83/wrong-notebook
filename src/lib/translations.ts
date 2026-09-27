@@ -28,6 +28,14 @@ export const translations = {
                 uploading: "Uploading...",
                 analyzing: "AI is analyzing...",
                 processing: "Processing result...",
+                analyzingSteps: [
+                    "Reading the exam page...",
+                    "Detecting questions...",
+                    "Transcribing handwriting...",
+                    "Grading each answer...",
+                    "Generating answers & analysis...",
+                    "Organizing knowledge tags..."
+                ],
             },
             messages: {
                 analysisFailed: "AI analysis failed, please try again",
@@ -744,6 +752,14 @@ export const translations = {
                 uploading: "正在上传...",
                 analyzing: "AI 正在分析...",
                 processing: "正在处理结果...",
+                analyzingSteps: [
+                    "正在阅读试卷页面...",
+                    "正在识别题目...",
+                    "正在转录手写笔迹...",
+                    "正在逐题判定对错...",
+                    "正在生成答案与解析...",
+                    "正在整理知识点标签..."
+                ],
             },
             messages: {
                 analysisFailed: "AI 分析失败，请重试",

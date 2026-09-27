@@ -473,12 +473,27 @@ function HomeContent() {
         }
     };
 
+    /** 当前扫描实际使用的 AI 实例（整卷拆分/批改走专用实例，未配置时跟随活跃实例） */
+    const getScanModelName = (): string | undefined => {
+        if (!config) return undefined;
+        if (config.aiProvider === 'openai') {
+            const instances = config.openai?.instances || [];
+            const id = config.openai?.multiAnalyzeInstanceId || config.openai?.activeInstanceId;
+            const inst = instances.find((i) => i.id === id);
+            return inst ? `${inst.name} · ${inst.model}` : undefined;
+        }
+        if (config.aiProvider === 'azure') return `Azure · ${config.azure?.model || config.azure?.deploymentName || ''}`;
+        return `Gemini · ${config.gemini?.model || ''}`;
+    };
+
     return (
         <main className="min-h-screen bg-background">
             <ProgressFeedback
                 status={analysisStep}
                 progress={progress}
                 message={getProgressMessage()}
+                modelName={analysisStep === 'analyzing' && inputMode === 'image' ? getScanModelName() : undefined}
+                rotatingMessages={analysisStep === 'analyzing' && inputMode === 'image' ? (t.common.progress?.analyzingSteps as string[] | undefined) : undefined}
             />
 
             <div className="container mx-auto p-4 space-y-8 pb-20">
