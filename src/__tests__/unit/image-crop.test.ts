@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { parseBbox } from '@/lib/ai/bbox';
-import { computeRowInkProfile, findWhitespaceBoundary } from '@/lib/image-utils';
+import { computeRowInkProfile, findWhitespaceBoundary, findAllWhitespaceGaps, assignBoundaries } from '@/lib/image-utils';
 
 describe('parseBbox', () => {
     it('应该解析标准格式 ymin,xmin,ymax,xmax', () => {
@@ -79,5 +79,46 @@ describe('findWhitespaceBoundary', () => {
         const p = Array.from({ length: 50 }, () => 0.2);
         p[20] = 0; p[21] = 0; // 只有 2px 空白
         expect(findWhitespaceBoundary(p, 21, 10)).toBeNull();
+    });
+});
+
+describe('findAllWhitespaceGaps', () => {
+    it('应该返回所有空白带中心', () => {
+        // 10-30 有字，40-80 有字 → 空白带 0-9、31-39、81-99
+        const profile = Array.from({ length: 100 }, (_, y) => ((y >= 10 && y <= 30) || (y >= 40 && y <= 80) ? 0.2 : 0));
+        const gaps = findAllWhitespaceGaps(profile);
+        expect(gaps).toEqual([5, 35, 90]);
+    });
+});
+
+describe('assignBoundaries（有序约束分配切线）', () => {
+    it('AI 提示有系统性偏移时，靠真实空白带修正（实测案例）', () => {
+        // 图高 1023，真实题起始 10/340/720/910，真实空白带 330/700/900
+        // AI 给的 top 提示系统性偏低：20/261/532/808
+        const b = assignBoundaries([330, 700, 900], [20, 261, 532, 808], 1023);
+        expect(b[1]).toBe(330);
+        expect(b[2]).toBe(700);
+        expect(b[3]).toBe(900);
+        expect(b[4]).toBe(1023);
+    });
+
+    it('没有空白带时回退到提示位置，且保持单调不重叠', () => {
+        const b = assignBoundaries([], [100, 300, 500], 600);
+        expect(b).toEqual([97, 300, 500, 600]);
+    });
+
+    it('空白带位置违反顺序约束时跳过它', () => {
+        // 第一个空白带 150 比第 2 题提示 300 更近？不违反；这里构造违反场景：
+        // 切线 1 已选 350，下一候选空白带只剩 200（在 350 之前）→ 不可用，回退提示
+        const b = assignBoundaries([350, 200], [50, 330, 600], 800);
+        // i=1: hint 330，候选空白带 > 45+16：350 和 200 中 200 <= 61 被过滤？200 > 45+16=61 成立…
+        // 两者都在第一题顶之后，最近 hint=330 的是 350
+        expect(b[1]).toBe(350);
+        // i=2: hint 600，候选需 > 350+16：只剩无（200、350 都被过滤）→ 回退 600
+        expect(b[2]).toBe(600);
+    });
+
+    it('单题直接返回整图边界', () => {
+        expect(assignBoundaries([100], [50], 500)).toEqual([47, 500]);
     });
 });
