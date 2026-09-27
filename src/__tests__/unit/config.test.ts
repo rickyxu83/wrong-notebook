@@ -204,3 +204,55 @@ describe('config module', () => {
         });
     });
 });
+
+describe('getMultiAnalyzeOpenAIConfig（整卷拆分专用实例）', () => {
+    it('配置了专用实例时返回该实例', async () => {
+        vi.mocked(fs.existsSync).mockReturnValue(true);
+        vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+            aiProvider: 'openai',
+            openai: {
+                instances: [
+                    { id: 'ds', name: 'DeepSeek', apiKey: 'k1', baseUrl: 'https://api.deepseek.com/', model: 'deepseek-flash' },
+                    { id: 'kimi', name: 'Kimi', apiKey: 'k2', baseUrl: 'https://api.kimi.com/coding/v1', model: 'k3-256k' },
+                ],
+                activeInstanceId: 'ds',
+                multiAnalyzeInstanceId: 'kimi',
+            },
+        }));
+
+        const { getMultiAnalyzeOpenAIConfig } = await import('@/lib/config');
+        expect(getMultiAnalyzeOpenAIConfig()?.id).toBe('kimi');
+    });
+
+    it('未配置或专用实例已被删除时回退活跃实例', async () => {
+        vi.mocked(fs.existsSync).mockReturnValue(true);
+        vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+            aiProvider: 'openai',
+            openai: {
+                instances: [
+                    { id: 'ds', name: 'DeepSeek', apiKey: 'k1', baseUrl: 'https://api.deepseek.com/', model: 'deepseek-flash' },
+                ],
+                activeInstanceId: 'ds',
+                multiAnalyzeInstanceId: 'deleted-id',
+            },
+        }));
+
+        const { getMultiAnalyzeOpenAIConfig } = await import('@/lib/config');
+        expect(getMultiAnalyzeOpenAIConfig()?.id).toBe('ds');
+    });
+
+    it('updateAppConfig 应透传 multiAnalyzeInstanceId', async () => {
+        vi.mocked(fs.existsSync).mockReturnValue(false);
+        vi.mocked(fs.writeFileSync).mockImplementation(() => { });
+
+        const { updateAppConfig } = await import('@/lib/config');
+        const result = updateAppConfig({
+            openai: {
+                instances: [{ id: 'a', name: 'A', apiKey: 'k', baseUrl: 'https://x', model: 'm' }],
+                activeInstanceId: 'a',
+                multiAnalyzeInstanceId: 'a',
+            },
+        });
+        expect(result.openai?.multiAnalyzeInstanceId).toBe('a');
+    });
+});

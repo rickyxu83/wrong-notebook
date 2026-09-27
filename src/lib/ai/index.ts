@@ -5,7 +5,7 @@ import { AzureOpenAIProvider } from "./azure-provider";
 
 export * from "./types";
 
-import { getAppConfig, getActiveOpenAIConfig } from "../config";
+import { getAppConfig, getActiveOpenAIConfig, getMultiAnalyzeOpenAIConfig } from "../config";
 import { createLogger } from "../logger";
 
 const logger = createLogger('ai');
@@ -26,5 +26,19 @@ export function getAIService(): AIService {
         logger.info('Using Gemini Provider');
         return new GeminiProvider(config.gemini);
     }
+}
+
+/**
+ * 整卷拆分（多题识别）专用 AI 服务：坐标定位对模型能力要求高，
+ * 可在设置中指定专用实例（如 Kimi），未配置时回退活跃实例。
+ */
+export function getAIServiceForMultiAnalyze(): AIService {
+    const config = getAppConfig();
+    if (config.aiProvider === 'openai') {
+        const instance = getMultiAnalyzeOpenAIConfig();
+        logger.info({ multiAnalyzeInstance: instance?.name }, 'Using OpenAI Provider for multi-analyze');
+        return new OpenAIProvider(instance);
+    }
+    return getAIService();
 }
 

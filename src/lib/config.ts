@@ -21,6 +21,8 @@ export interface AppConfig {
     openai?: {
         instances?: OpenAIInstance[];
         activeInstanceId?: string;
+        // 整卷拆分（多题识别）专用实例：坐标定位对模型能力要求高，可单独指定
+        multiAnalyzeInstanceId?: string;
     };
     gemini?: {
         apiKey?: string;
@@ -148,6 +150,7 @@ export function getAppConfig(): AppConfig {
                 openai: {
                     instances: openaiConfig?.instances || DEFAULT_CONFIG.openai?.instances || [],
                     activeInstanceId: openaiConfig?.activeInstanceId || DEFAULT_CONFIG.openai?.activeInstanceId,
+                    multiAnalyzeInstanceId: openaiConfig?.multiAnalyzeInstanceId,
                 },
                 gemini: { ...DEFAULT_CONFIG.gemini, ...userConfig.gemini },
                 azure: { ...DEFAULT_CONFIG.azure, ...userConfig.azure },
@@ -170,6 +173,7 @@ export function updateAppConfig(newConfig: Partial<AppConfig>) {
         openai: {
             instances: newConfig.openai?.instances ?? currentConfig.openai?.instances ?? [],
             activeInstanceId: newConfig.openai?.activeInstanceId ?? currentConfig.openai?.activeInstanceId,
+            multiAnalyzeInstanceId: newConfig.openai?.multiAnalyzeInstanceId ?? currentConfig.openai?.multiAnalyzeInstanceId,
         },
         gemini: { ...currentConfig.gemini, ...newConfig.gemini },
         azure: { ...currentConfig.azure, ...newConfig.azure },
@@ -197,6 +201,20 @@ export function getActiveOpenAIConfig(): OpenAIInstance | undefined {
     }
 
     return instances.find(i => i.id === activeId);
+}
+
+/**
+ * 获取整卷拆分（多题识别）专用实例：配置了就用专用实例，否则回退活跃实例。
+ */
+export function getMultiAnalyzeOpenAIConfig(): OpenAIInstance | undefined {
+    const config = getAppConfig();
+    const instances = config.openai?.instances || [];
+    const id = config.openai?.multiAnalyzeInstanceId;
+    if (id) {
+        const found = instances.find(i => i.id === id);
+        if (found) return found;
+    }
+    return getActiveOpenAIConfig();
 }
 
 // 最大实例数限制
