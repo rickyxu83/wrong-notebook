@@ -5,8 +5,9 @@ import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, ArrowLeft, House, Printer, Eye, CheckCircle, XCircle } from "lucide-react";
+import { Loader2, ArrowLeft, House, Printer, Eye, CheckCircle, XCircle, PenLine } from "lucide-react";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
+import { SketchPad } from "@/components/sketch-pad";
 import { apiClient } from "@/lib/api-client";
 import { useLanguage } from "@/contexts/LanguageContext";
 
@@ -55,6 +56,8 @@ export default function PracticePaperPage() {
     const [paper, setPaper] = useState<Paper | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [answers, setAnswers] = useState<Record<string, AnswerState>>({});
+    // 每题手写演算区开关
+    const [sketchOpen, setSketchOpen] = useState<Record<string, boolean>>({});
     const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const stopPolling = () => {
@@ -196,6 +199,22 @@ export default function PracticePaperPage() {
                                 {job.status === "done" && job.result && (
                                     <>
                                         <MarkdownRenderer content={job.result.questionText} className="font-medium" />
+
+                                        {/* 手写演算区（墨水屏手写笔友好） */}
+                                        <div>
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => setSketchOpen((prev) => ({ ...prev, [job.id]: !prev[job.id] }))}
+                                            >
+                                                <PenLine className="mr-2 h-4 w-4" />
+                                                {sketchOpen[job.id]
+                                                    ? (t.practicePaper?.hideSketch || "收起演算区")
+                                                    : (t.practicePaper?.showSketch || "手写演算")}
+                                            </Button>
+                                            {sketchOpen[job.id] && <SketchPad className="mt-3" />}
+                                        </div>
 
                                         {/* 自评流：查看答案 → 答对/答错 */}
                                         {!st.showAnswer ? (

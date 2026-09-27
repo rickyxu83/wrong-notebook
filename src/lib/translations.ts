@@ -300,6 +300,10 @@ export const translations = {
             notReady: "Question is not ready yet",
             loadFailed: "Failed to load",
         },
+        sketch: {
+            undo: "Undo",
+            clear: "Clear",
+        },
         practicePaper: {
             title: "Practice Paper",
             createPaper: "Generate Paper",
@@ -314,6 +318,8 @@ export const translations = {
             answerArea: "Answer area:",
             empty: "No questions yet",
             createFailed: "Failed to create paper. Please try again.",
+            showSketch: "Sketch pad",
+            hideSketch: "Hide sketch pad",
         },
         multiReview: {
             title: "{count} questions detected",
@@ -1024,6 +1030,10 @@ export const translations = {
             notReady: "题目尚未出好",
             loadFailed: "加载失败",
         },
+        sketch: {
+            undo: "撤销",
+            clear: "清空",
+        },
         practicePaper: {
             title: "举一反三试卷",
             createPaper: "生成试卷",
@@ -1038,6 +1048,8 @@ export const translations = {
             answerArea: "作答区：",
             empty: "还没有题目",
             createFailed: "创建试卷失败，请重试。",
+            showSketch: "手写演算",
+            hideSketch: "收起演算区",
         },
         multiReview: {
             title: "识别到 {count} 道题",
