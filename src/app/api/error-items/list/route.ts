@@ -133,6 +133,21 @@ export async function GET(req: Request) {
             whereClause.paperLevel = paperLevel;
         }
 
+        // 今日待复习（简化艾宾浩斯，issue #88）：有到期未完成的排期且未掌握
+        const dueOnly = searchParams.get("dueOnly") === "1";
+        if (dueOnly) {
+            whereClause.masteryLevel = 0;
+            whereClause.reviewSchedules = {
+                some: {
+                    completedAt: null,
+                    scheduledFor: { lte: new Date() },
+                },
+            };
+        }
+
+        // 打印预览等场景需要原图时显式声明，默认不返回 base64 原图/ocr 文本（列表提速）
+        const includeImage = searchParams.get("includeImage") === "1";
+
         // 将所有 AND 条件合并到 whereClause
         if (andConditions.length > 0) {
             whereClause.AND = andConditions;
@@ -144,13 +159,35 @@ export async function GET(req: Request) {
         });
 
         // 分页查询
+        // 默认不返回 originalImageUrl / ocrText（base64 大字段），显著减小列表载荷
+        const baseSelect = {
+            id: true,
+            userId: true,
+            subjectId: true,
+            questionText: true,
+            answerText: true,
+            analysis: true,
+            wrongAnswerText: true,
+            mistakeAnalysis: true,
+            mistakeStatus: true,
+            knowledgePoints: true,
+            source: true,
+            errorType: true,
+            userNotes: true,
+            masteryLevel: true,
+            gradeSemester: true,
+            paperLevel: true,
+            createdAt: true,
+            updatedAt: true,
+            subject: true,
+            tags: true,
+        } as const;
         const errorItems = await prisma.errorItem.findMany({
             where: whereClause,
             orderBy: { createdAt: "desc" },
-            include: {
-                subject: true,
-                tags: true,
-            },
+            ...(includeImage
+                ? { include: { subject: true, tags: true } }
+                : { select: baseSelect }),
             skip: (page - 1) * pageSize,
             take: pageSize,
         });

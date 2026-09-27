@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, CheckCircle, XCircle, RefreshCw, Trash2, Edit, Save, X, Box, Loader2, Eye, EyeOff, ImageIcon } from "lucide-react";
+import { ArrowLeft, CheckCircle, XCircle, RefreshCw, Trash2, Edit, Save, X, Box, Loader2, Eye, EyeOff, ImageIcon, Sparkles } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import Link from "next/link";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -153,6 +153,49 @@ export default function ErrorDetailPage() {
         } catch (error) {
             console.error(error);
             alert(t.common?.messages?.updateFailed || 'Update failed');
+        }
+    };
+
+    const [isReanalyzing, setIsReanalyzing] = useState(false);
+    const [nextReviewAt, setNextReviewAt] = useState<string | null>(null);
+
+    const completeReviewHandler = async (isCorrect: boolean) => {
+        if (!item) return;
+        try {
+            const result = await apiClient.post<{ nextReviewAt: string | null }>("/api/review/complete", {
+                errorItemId: item.id,
+                isCorrect,
+            });
+            if (result.nextReviewAt) {
+                setNextReviewAt(result.nextReviewAt);
+                alert((t.detail?.reviewScheduled || '下次复习：') + new Date(result.nextReviewAt).toLocaleDateString());
+            } else {
+                alert(t.detail?.reviewDone || '复习已完成');
+            }
+        } catch (error) {
+            console.error(error);
+            alert(t.common?.messages?.updateFailed || 'Update failed');
+        }
+    };
+
+    const reanalyzeHandler = async () => {
+        if (!item || isReanalyzing) return;
+        if (!confirm(t.detail?.reanalyzeConfirm || '将用 AI 根据原题图片重新解析，并覆盖题目/答案/解析/知识点，继续？')) return;
+        setIsReanalyzing(true);
+        try {
+            const updated = await apiClient.post<any>(`/api/error-items/${item.id}/reanalyze`, {});
+            setItem({ ...item, ...updated });
+            alert(t.detail?.reanalyzeDone || '重新解析完成');
+        } catch (error: any) {
+            console.error(error);
+            const msg = error?.data?.message || '';
+            if (msg.includes('NO_IMAGE')) {
+                alert(t.detail?.reanalyzeNoImage || '该错题没有原题图片，无法重新解析');
+            } else {
+                alert(t.detail?.reanalyzeFailed || '重新解析失败，请稍后重试');
+            }
+        } finally {
+            setIsReanalyzing(false);
         }
     };
 
@@ -458,6 +501,24 @@ export default function ErrorDetailPage() {
                                 {t.detail.practice}
                             </Button>
                         </Link>
+                        {item.masteryLevel === 0 && (
+                            <>
+                                <Button variant="outline" size="sm" className="text-green-600 border-green-300 hover:bg-green-50" onClick={() => completeReviewHandler(true)}>
+                                    <CheckCircle className="mr-2 h-4 w-4" />
+                                    {t.detail?.reviewRemembered || "复习·记住了"}
+                                </Button>
+                                <Button variant="outline" size="sm" className="text-orange-600 border-orange-300 hover:bg-orange-50" onClick={() => completeReviewHandler(false)}>
+                                    <XCircle className="mr-2 h-4 w-4" />
+                                    {t.detail?.reviewForgotten || "复习·没记住"}
+                                </Button>
+                            </>
+                        )}
+                        {item.originalImageUrl && (
+                            <Button variant="outline" size="sm" onClick={reanalyzeHandler} disabled={isReanalyzing}>
+                                {isReanalyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                                {isReanalyzing ? (t.detail?.reanalyzing || "解析中...") : (t.detail?.reanalyze || "重新解析")}
+                            </Button>
+                        )}
                         <Button
                             size="sm"
                             variant={item.masteryLevel > 0 ? "default" : "default"}

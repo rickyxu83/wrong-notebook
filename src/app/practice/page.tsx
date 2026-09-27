@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, Suspense, useEffect } from "react";
+import { useState, Suspense, useEffect, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, RefreshCw, CheckCircle, Eye, Send, XCircle, ArrowLeft, House } from "lucide-react";
+import { Loader2, RefreshCw, CheckCircle, Eye, Send, XCircle, ArrowLeft, House, Printer } from "lucide-react";
 import { ParsedQuestion } from "@/lib/ai/types";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Textarea } from "@/components/ui/textarea";
@@ -45,49 +45,131 @@ function PracticeContent() {
             .catch(err => console.error(err));
     }, []);
 
+    const [currentJobId, setCurrentJobId] = useState<string | null>(null);
+    const [slowHint, setSlowHint] = useState(false);
+    const [latestDoneJob, setLatestDoneJob] = useState<{ id: string; createdAt: string; difficulty: string } | null>(null);
+    const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const pollStartRef = useRef<number>(0);
+
     const [difficulty, setDifficulty] = useState<"easy" | "medium" | "hard" | "harder">("medium");
 
     const [error, setError] = useState<string | null>(null);
+
+    const stopPolling = () => {
+        if (pollTimerRef.current) {
+            clearInterval(pollTimerRef.current);
+            pollTimerRef.current = null;
+        }
+    };
+
+    useEffect(() => () => stopPolling(), []);
+
+    const mapJobError = (msg: string): string => {
+        let errorMessage = t.practice.errors?.default || "Failed to generate";
+        if (msg.includes('AI_CONNECTION_FAILED')) {
+            errorMessage = t.errors?.aiConnectionFailed || errorMessage;
+        } else if (msg.includes('AI_RESPONSE_ERROR')) {
+            errorMessage = t.errors?.aiResponseError || errorMessage;
+        } else if (msg.includes('AI_AUTH_ERROR')) {
+            errorMessage = t.errors?.aiAuth || errorMessage;
+        } else if (msg.includes('AI_UNKNOWN_ERROR')) {
+            errorMessage = t.errors?.AI_UNKNOWN_ERROR || errorMessage;
+        }
+        return errorMessage;
+    };
+
+    const pollJob = (jobId: string) => {
+        stopPolling();
+        pollStartRef.current = Date.now();
+        pollTimerRef.current = setInterval(async () => {
+            try {
+                if (Date.now() - pollStartRef.current > 20000) {
+                    setSlowHint(true);
+                }
+                const job = await apiClient.get<any>(`/api/practice/jobs/${jobId}`);
+                if (job.status === "done" && job.result) {
+                    stopPolling();
+                    setQuestion(job.result);
+                    setLoading(false);
+                    setSlowHint(false);
+                    setLatestDoneJob(null);
+                } else if (job.status === "failed") {
+                    stopPolling();
+                    setError(mapJobError(job.error || ""));
+                    setLoading(false);
+                    setSlowHint(false);
+                }
+            } catch (e) {
+                // 单次轮询失败不中断，下个周期重试
+                console.error(e);
+            }
+        }, 2500);
+    };
+
+    // 页面加载时恢复：进行中的任务继续轮询；已出好的题提供一键加载
+    useEffect(() => {
+        if (!errorItemId) return;
+        apiClient.get<{ jobs: any[] }>(`/api/practice/jobs?errorItemId=${errorItemId}`)
+            .then(({ jobs }) => {
+                const active = jobs.find(j => j.status === "pending" || j.status === "running");
+                if (active) {
+                    setCurrentJobId(active.id);
+                    setLoading(true);
+                    pollJob(active.id);
+                    return;
+                }
+                const done = jobs.find(j => j.status === "done");
+                if (done) {
+                    setLatestDoneJob({ id: done.id, createdAt: done.completedAt || done.createdAt, difficulty: done.difficulty });
+                }
+            })
+            .catch(err => console.error(err));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [errorItemId]);
+
+    const loadJob = async (jobId: string) => {
+        try {
+            const job = await apiClient.get<any>(`/api/practice/jobs/${jobId}`);
+            if (job.status === "done" && job.result) {
+                setCurrentJobId(jobId);
+                setQuestion(job.result);
+                setLatestDoneJob(null);
+                setError(null);
+                setUserAnswer("");
+                setNotes("");
+                setIsSubmitted(false);
+                setIsCorrect(null);
+                setShowAnswer(false);
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    };
 
     const generateQuestion = async () => {
         if (!errorItemId) return;
 
         setLoading(true);
         setError(null);
+        setSlowHint(false);
         setUserAnswer("");
         setNotes("");
         setIsSubmitted(false);
         setIsCorrect(null);
         setShowAnswer(false);
         try {
-            const timeout = config?.timeouts?.analyze || 180000;
-            frontendLogger.info('[Practice]', 'Generating question', {
-                timeout
-            });
-            const data = await apiClient.post<ParsedQuestion>("/api/practice/generate", {
+            frontendLogger.info('[Practice]', 'Creating background job');
+            const { jobId } = await apiClient.post<{ jobId: string }>("/api/practice/generate", {
                 errorItemId,
                 language,
                 difficulty
-            }, { timeout });
-            setQuestion(data);
+            });
+            setCurrentJobId(jobId);
+            pollJob(jobId);
         } catch (error: any) {
             console.error(error);
             const msg = error.data?.message || "";
-
-            let errorMessage = t.practice.errors?.default || "Failed to generate";
-
-            if (msg.includes('AI_CONNECTION_FAILED')) {
-                errorMessage = t.errors?.aiConnectionFailed || errorMessage;
-            } else if (msg.includes('AI_RESPONSE_ERROR')) {
-                errorMessage = t.errors?.aiResponseError || errorMessage;
-            } else if (msg.includes('AI_AUTH_ERROR')) {
-                errorMessage = t.errors?.aiAuth || errorMessage;
-            } else if (msg.includes('AI_UNKNOWN_ERROR')) {
-                errorMessage = t.errors?.AI_UNKNOWN_ERROR || errorMessage;
-            }
-
-            setError(errorMessage);
-        } finally {
+            setError(mapJobError(msg));
             setLoading(false);
         }
     };
@@ -193,6 +275,22 @@ function PracticeContent() {
                                 </>
                             )}
                         </Button>
+
+                        {loading && slowHint && (
+                            <p className="text-sm text-muted-foreground">
+                                {t.practice.backgroundHint || "AI 正在后台出题，可以离开本页，出好后回来加载即可"}
+                            </p>
+                        )}
+                        {!loading && latestDoneJob && (
+                            <div className="text-sm text-muted-foreground flex items-center gap-2">
+                                <span>
+                                    {t.practice.latestReady || "有一题已出好"}（{new Date(latestDoneJob.createdAt).toLocaleString()}）
+                                </span>
+                                <Button variant="outline" size="sm" onClick={() => loadJob(latestDoneJob.id)}>
+                                    {t.practice.loadLatest || "加载"}
+                                </Button>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
@@ -215,6 +313,14 @@ function PracticeContent() {
                                         <option value="hard">{t.practice.difficulty?.hard || "Hard"}</option>
                                         <option value="harder">{t.practice.difficulty?.harder || "Challenge"}</option>
                                     </select>
+                                    {currentJobId && (
+                                        <Link href={`/practice/print?jobId=${currentJobId}`} target="_blank">
+                                            <Button variant="ghost" size="sm">
+                                                <Printer className="mr-2 h-4 w-4" />
+                                                {t.practice.printQuestion || "打印"}
+                                            </Button>
+                                        </Link>
+                                    )}
                                     <Button
                                         variant="ghost"
                                         size="sm"

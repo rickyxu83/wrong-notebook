@@ -114,6 +114,7 @@ model ErrorItem {
   updatedAt        DateTime @updatedAt
 
   reviewSchedules ReviewSchedule[]
+  practiceJobs    PracticeJob[]
 }
 
 model ReviewSchedule {
@@ -126,6 +127,26 @@ model ReviewSchedule {
   isCorrect    Boolean? // Result of the review
   
   createdAt    DateTime @default(now())
+}
+
+// 举一反三异步出题任务
+model PracticeJob {
+  id          String    @id @default(cuid())
+  errorItemId String
+  errorItem   ErrorItem @relation(fields: [errorItemId], references: [id], onDelete: Cascade)
+  userId      String
+
+  difficulty String   @default("medium")
+  language   String   @default("zh")
+  status     String   @default("pending") // pending, running, done, failed
+  resultJson String?  // 出题结果 JSON
+  error      String?
+
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  @@index([errorItemId])
+  @@index([userId, status])
 }
 
 model PracticeRecord {

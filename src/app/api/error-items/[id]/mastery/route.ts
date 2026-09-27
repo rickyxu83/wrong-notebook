@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
 import { unauthorized, internalError } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
+import { syncSchedulesWithMastery } from "@/lib/review-plan";
 
 const logger = createLogger('api:error-items:mastery');
 
@@ -50,6 +51,9 @@ export async function PATCH(
                 masteryLevel,
             },
         });
+
+        // 掌握状态与复习排期联动（已掌握清除待排期，取消掌握重新排期，issue #88）
+        await syncSchedulesWithMastery(id, masteryLevel).catch(() => { });
 
         return NextResponse.json(errorItem);
     } catch (error) {

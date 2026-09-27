@@ -213,6 +213,7 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
             if (gradeFilter) params.append("gradeSemester", gradeFilter);
             if (chapterFilter) params.append("chapter", chapterFilter); // 章节筛选
             if (paperLevelFilter !== "all") params.append("paperLevel", paperLevelFilter);
+            if (dueOnly) params.append("dueOnly", "1");
             // 分页参数
             params.append("page", page.toString());
             params.append("pageSize", pageSize.toString());

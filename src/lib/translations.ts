@@ -226,6 +226,16 @@ export const translations = {
             noMistakeAnalysis: "No mistake analysis yet.",
             close: "Close",
             clickOutside: "Click outside to close",
+            reviewRemembered: "Review · Got it",
+            reviewForgotten: "Review · Not yet",
+            reviewScheduled: "Next review: ",
+            reviewDone: "Review completed",
+            reanalyze: "Re-analyze",
+            reanalyzing: "Analyzing...",
+            reanalyzeConfirm: "Re-analyze from the original image with AI? This overwrites question/answer/analysis/tags.",
+            reanalyzeDone: "Re-analysis completed",
+            reanalyzeNoImage: "No original image for this item; cannot re-analyze",
+            reanalyzeFailed: "Re-analysis failed, please try again later",
         },
         practice: {
             title: "Smart Practice",
@@ -233,6 +243,10 @@ export const translations = {
             generate: "Generate Practice Question",
             generating: "Generating AI Question...",
             regenerate: "Regenerate",
+            backgroundHint: "AI is generating in the background. You can leave this page and come back later.",
+            latestReady: "A question is ready",
+            loadLatest: "Load",
+            printQuestion: "Print",
             // practiceProblem: "Practice Problem", // Moved to app
             // yourAnswer: "Your Answer", // Moved to app
             // answerPlaceholder: "Enter your answer...", // Moved to app
@@ -338,6 +352,7 @@ export const translations = {
             filteringByTag: "Filtering by tag",
             grade: "Grade/Semester",
             paperLevel: "Paper Level",
+            dueToday: "Due Today",
         },
         stats: {
             title: "Practice Statistics",
@@ -874,6 +889,16 @@ export const translations = {
             noMistakeAnalysis: "暂无错因分析",
             close: "✕ 关闭",
             clickOutside: "点击图片外部区域关闭",
+            reviewRemembered: "复习·记住了",
+            reviewForgotten: "复习·没记住",
+            reviewScheduled: "下次复习：",
+            reviewDone: "复习已完成",
+            reanalyze: "重新解析",
+            reanalyzing: "解析中...",
+            reanalyzeConfirm: "将用 AI 根据原题图片重新解析，并覆盖题目/答案/解析/知识点，继续？",
+            reanalyzeDone: "重新解析完成",
+            reanalyzeNoImage: "该错题没有原题图片，无法重新解析",
+            reanalyzeFailed: "重新解析失败，请稍后重试",
         },
         practice: {
             title: "智能练习",
@@ -881,6 +906,10 @@ export const translations = {
             generate: "生成练习题",
             generating: "AI 正在出题...",
             regenerate: "重新生成",
+            backgroundHint: "AI 正在后台出题，可以离开本页，出好后回来加载即可",
+            latestReady: "有一题已出好",
+            loadLatest: "加载",
+            printQuestion: "打印",
             // practiceProblem: "练习题", // Moved to app
             // yourAnswer: "你的答案", // Moved to app
             // answerPlaceholder: "输入你的答案...", // Moved to app
@@ -986,6 +1015,7 @@ export const translations = {
             filteringByTag: "按标签筛选",
             grade: "年级/学期",
             paperLevel: "所属卷等级",
+            dueToday: "今日待复习",
         },
         stats: {
             title: "练习统计",
