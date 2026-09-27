@@ -169,10 +169,17 @@ export default function ErrorDetailPage() {
             });
             if (result.nextReviewAt) {
                 setNextReviewAt(result.nextReviewAt);
-                alert((t.detail?.reviewScheduled || '下次复习：') + new Date(result.nextReviewAt).toLocaleDateString());
-            } else {
-                alert(t.detail?.reviewDone || '复习已完成');
             }
+            // 连续复习流：自动跳到下一道到期题；没有了就回列表（到期列表里本题已消失）
+            try {
+                const due = await apiClient.get<{ ids: string[] }>("/api/review/due");
+                const nextId = due.ids.find((id) => id !== item.id);
+                if (nextId) {
+                    router.push(`/error-items/${nextId}`);
+                    return;
+                }
+            } catch { /* 跳转失败就留在本页 */ }
+            alert(t.detail?.reviewDone || '复习已完成');
         } catch (error) {
             console.error(error);
             alert(t.common?.messages?.updateFailed || 'Update failed');

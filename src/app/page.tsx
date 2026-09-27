@@ -128,6 +128,18 @@ function HomeContent() {
         }
     };
 
+    /** 多选/多拖整页：逐张压缩后直接入暂存队列（不逐张进裁剪器） */
+    const onImagesSelect = async (files: File[]) => {
+        for (const file of files.slice(0, 10)) {
+            try {
+                const base64Image = await processImageFile(file);
+                setPendingPages((prev) => [...prev, base64Image]);
+            } catch (e) {
+                console.error(e);
+            }
+        }
+    };
+
     /** 开始解析暂存的所有页（单页或多页） */
     const startAnalysis = () => {
         if (pendingPages.length === 0 || analysisStep !== 'idle') return;
@@ -617,7 +629,7 @@ function HomeContent() {
 
                         {inputMode === "image" ? (
                             <>
-                                <UploadZone onImageSelect={onImageSelect} isAnalyzing={analysisStep !== 'idle'} />
+                                <UploadZone onImageSelect={onImageSelect} onImagesSelect={onImagesSelect} isAnalyzing={analysisStep !== 'idle'} />
 
                                 {/* 连续扫描暂存条：多页试卷逐页添加，最后一并解析 */}
                                 {pendingPages.length > 0 && (

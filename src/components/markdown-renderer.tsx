@@ -5,6 +5,53 @@ import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 
+/**
+ * 修复 AI 生成的“伪表格”：连续的 `a | b | c` 行若缺少 Markdown 分隔行，
+ * 自动在首行后插入 `|---|---|`（remark-gfm 才会将其识别为真表格）。
+ */
+export function fixMalformedTables(text: string): string {
+    const lines = text.split('\n');
+    // 表格行：≥2 个竖线且不含 LaTeX 定界符（避免把 $|x|$ 这类公式行当表格）
+    const isTableRow = (s: string) => !s.includes('$') && (s.match(/\|/g) || []).length >= 2;
+    const isSeparatorRow = (s: string) => /^\s*\|?[\s:|-]+\|?\s*$/.test(s) && s.includes('-');
+    const out: string[] = [];
+    let i = 0;
+    while (i < lines.length) {
+        const line = lines[i];
+        // 检测表格块起点：当前行像表格行，下一行也是表格行，且下一行不是分隔行
+        if (
+            isTableRow(line) &&
+            i + 1 < lines.length &&
+            isTableRow(lines[i + 1]) &&
+            !isSeparatorRow(lines[i + 1]) &&
+            !isSeparatorRow(line)
+        ) {
+            // 收集整个表格块
+            const block: string[] = [];
+            while (i < lines.length && isTableRow(lines[i])) {
+                block.push(lines[i]);
+                i++;
+            }
+            if (block.length >= 2) {
+                // 规范化为 | cell | cell | 形式，并补分隔行
+                const norm = block.map((row) => {
+                    const cells = row.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map((c) => c.trim());
+                    return `| ${cells.join(' | ')} |`;
+                });
+                const colCount = norm[0].split('|').length - 2;
+                const sep = `| ${Array(colCount).fill('---').join(' | ')} |`;
+                out.push(norm[0], sep, ...norm.slice(1));
+                continue;
+            }
+            out.push(...block);
+            continue;
+        }
+        out.push(line);
+        i++;
+    }
+    return out.join('\n');
+}
+
 interface MarkdownRendererProps {
     content: string;
     className?: string;
@@ -13,7 +60,7 @@ interface MarkdownRendererProps {
 export function MarkdownRenderer({ content, className = '' }: MarkdownRendererProps) {
     // Preprocess content to ensure proper paragraph breaks and LaTeX rendering
     // Convert single line breaks to double line breaks for better readability
-    const processedContent = content
+    const processedContent = fixMalformedTables(content
         // First, convert literal \n sequences to actual newlines (fix for AI responses)
         .replace(/\\n/g, '\n')
         // Preserve existing double line breaks with a unique marker
@@ -30,7 +77,8 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
         // This handles cases where $ might be directly adjacent to text
         .replace(/([^\s$])(\$[^$]+\$)([^\s$])/g, '$1 $2 $3')
         // Restore preserved double line breaks (use flexible whitespace matching)
-        .replace(/\s*###PRESERVE_BREAK###\s*/g, '\n\n');
+        .replace(/\s*###PRESERVE_BREAK###\s*/g, '\n\n')
+    );
 
     return (
         <div className={`markdown-content overflow-x-auto min-w-0 ${className}`}>

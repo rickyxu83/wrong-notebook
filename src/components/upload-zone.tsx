@@ -19,11 +19,12 @@ declare global {
 }
 
 interface UploadZoneProps {
-    onImageSelect: (file: File) => void;  // 改为传递 File 对象
+    onImageSelect: (file: File) => void;  // 单张（进裁剪器）
+    onImagesSelect?: (files: File[]) => void; // 多张（直接入暂存，跳过逐张裁剪）
     isAnalyzing: boolean;
 }
 
-export function UploadZone({ onImageSelect, isAnalyzing }: UploadZoneProps) {
+export function UploadZone({ onImageSelect, onImagesSelect, isAnalyzing }: UploadZoneProps) {
     const { t } = useLanguage();
     const [isScreenshotting, setIsScreenshotting] = useState(false);
     const [isClient, setIsClient] = useState(false);
@@ -39,13 +40,18 @@ export function UploadZone({ onImageSelect, isAnalyzing }: UploadZoneProps) {
 
     const onDrop = useCallback(
         (acceptedFiles: File[]) => {
+            if (acceptedFiles.length > 1 && onImagesSelect) {
+                // 多选/多拖：整页直接入暂存队列，不逐张进裁剪器
+                onImagesSelect(acceptedFiles);
+                return;
+            }
             const file = acceptedFiles[0];
             if (file) {
                 // 直接传递 File 对象，让父组件处理压缩
                 onImageSelect(file);
             }
         },
-        [onImageSelect]
+        [onImageSelect, onImagesSelect]
     );
 
     const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -53,7 +59,8 @@ export function UploadZone({ onImageSelect, isAnalyzing }: UploadZoneProps) {
         accept: {
             "image/*": [".jpeg", ".jpg", ".png"],
         },
-        maxFiles: 1,
+        // 允许多选：多张直接入暂存队列
+        maxFiles: 10,
         disabled: isAnalyzing,
     });
     // 检查是否支持屏幕截图

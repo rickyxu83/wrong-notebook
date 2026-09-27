@@ -67,11 +67,14 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
     const { t, language } = useLanguage();
     const router = useRouter();
 
-    // 挂载时拉一次今日待复习数量（会触发老数据的排期懒补齐）
-    useEffect(() => {
+    // 今日待复习数量（挂载时 + 每次回到本页时刷新；会触发老数据的排期懒补齐）
+    const refreshDueCount = () => {
         apiClient.get<{ count: number }>("/api/review/due")
             .then(d => setDueCount(d.count))
             .catch(() => { });
+    };
+    useEffect(() => {
+        refreshDueCount();
     }, []);
 
     const handleExportPrint = () => {
@@ -273,6 +276,27 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
             setLoading(false);
         }
     };
+
+    // 从详情页返回（复习标记后）时自动刷新：复习过的题会从到期列表消失
+    const fetchItemsRef = useRef(fetchItems);
+    fetchItemsRef.current = fetchItems;
+    const refreshDueCountRef = useRef(refreshDueCount);
+    refreshDueCountRef.current = refreshDueCount;
+    useEffect(() => {
+        const onVisible = () => {
+            if (document.visibilityState === 'visible') {
+                fetchItemsRef.current();
+                refreshDueCountRef.current();
+            }
+        };
+        document.addEventListener('visibilitychange', onVisible);
+        window.addEventListener('focus', onVisible);
+        return () => {
+            document.removeEventListener('visibilitychange', onVisible);
+            window.removeEventListener('focus', onVisible);
+        };
+    }, []);
+
 
     return (
         <div className="space-y-6">
