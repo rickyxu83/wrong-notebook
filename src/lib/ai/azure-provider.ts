@@ -6,6 +6,7 @@ import { safeParseParsedQuestion } from './schema';
 import { getMathTagsFromDB, getTagsFromDB } from './tag-service';
 import { createLogger } from '../logger';
 import { normalizeMistakeStatusForSave } from '../mistake-status';
+import { parseBbox } from './bbox';
 
 const logger = createLogger('ai:azure');
 
@@ -115,6 +116,9 @@ export class AzureOpenAIProvider implements AIService {
         const requiresImage = requiresImageRaw?.toLowerCase().trim() === 'true';
         const mistakeStatus = normalizeMistakeStatusForSave(mistakeStatusRaw, wrongAnswerText);
 
+        // 整卷拆分时的题目包围盒（仅多题模式输出此标签）
+        const bbox = parseBbox(this.extractTag(text, "bbox"));
+
         // Construct Result
         const result: ParsedQuestion = {
             questionText,
@@ -125,7 +129,8 @@ export class AzureOpenAIProvider implements AIService {
             mistakeStatus,
             subject,
             knowledgePoints,
-            requiresImage
+            requiresImage,
+            ...(bbox ? { bbox } : {}),
         };
 
         // Final Schema Validation

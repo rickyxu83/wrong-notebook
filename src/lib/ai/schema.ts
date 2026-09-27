@@ -18,6 +18,8 @@ export const ParsedQuestionSchema = z.object({
     ]),
     knowledgePoints: z.array(z.string()).max(5, "知识点最多 5 个"),
     requiresImage: z.boolean().optional().default(false), // 题目是否依赖图片（如几何题）
+    // 整卷拆分时由 AI 返回的题目包围盒：[ymin, xmin, ymax, xmax]，0-1000 归一化
+    bbox: z.array(z.number()).length(4).optional(),
 });
 
 /**

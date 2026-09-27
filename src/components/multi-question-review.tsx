@@ -11,6 +11,7 @@ import { InlineMath } from "@/components/inline-math";
 import { Loader2, Save, X } from "lucide-react";
 import { ParsedQuestion } from "@/lib/ai";
 import { apiClient } from "@/lib/api-client";
+import { cropQuestionImage } from "@/lib/image-utils";
 import { useLanguage } from "@/contexts/LanguageContext";
 
 interface EditableQuestion extends ParsedQuestion {
@@ -49,6 +50,15 @@ export function MultiQuestionReview({ questions, imagePreview, defaultSubjectId,
         try {
             let done = 0;
             for (const q of toSave) {
+                // 整卷拆分：有 bbox 时裁出本题对应的图片区域，失败回退整页原图
+                let itemImage = imagePreview || "";
+                if (q.bbox && imagePreview) {
+                    try {
+                        itemImage = await cropQuestionImage(imagePreview, q.bbox as [number, number, number, number]);
+                    } catch {
+                        itemImage = imagePreview;
+                    }
+                }
                 await apiClient.post("/api/error-items", {
                     questionText: q.questionText,
                     answerText: q.answerText,
@@ -57,7 +67,7 @@ export function MultiQuestionReview({ questions, imagePreview, defaultSubjectId,
                     mistakeAnalysis: q.mistakeAnalysis || "",
                     mistakeStatus: q.mistakeStatus || "unknown",
                     knowledgePoints: q.knowledgePoints || [],
-                    originalImageUrl: imagePreview || "",
+                    originalImageUrl: itemImage,
                     subjectId: notebookId || undefined,
                 });
                 done++;
