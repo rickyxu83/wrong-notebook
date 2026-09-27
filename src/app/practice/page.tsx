@@ -14,6 +14,7 @@ import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { apiClient } from "@/lib/api-client";
 import { AppConfig } from "@/types/api";
 import { frontendLogger } from "@/lib/frontend-logger";
+import { useEinkMode } from "@/lib/use-eink";
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +23,7 @@ function PracticeContent() {
     const router = useRouter();
     const errorItemId = searchParams.get("id");
     const { t, language } = useLanguage();
+    const eink = useEinkMode();
 
     const [question, setQuestion] = useState<ParsedQuestion | null>(null);
     const [loading, setLoading] = useState(false);
@@ -207,6 +209,25 @@ function PracticeContent() {
         }).catch(err => console.error("Failed to save practice record:", err));
     };
 
+    // E-ink 自评流：墨水屏键盘输入不便，改为看答案后自评对错，结果喂复习计划
+    const selfAssess = (correct: boolean) => {
+        if (!question) return;
+        setIsSubmitted(true);
+        setIsCorrect(correct);
+        setShowAnswer(true);
+        apiClient.post("/api/practice/record", {
+            subject: question.subject || "Unknown",
+            difficulty,
+            isCorrect: correct
+        }).catch(err => console.error("Failed to save practice record:", err));
+        if (errorItemId) {
+            apiClient.post("/api/review/complete", {
+                errorItemId,
+                isCorrect: correct
+            }).catch(err => console.error("Failed to complete review:", err));
+        }
+    };
+
     if (!errorItemId) {
         return <div className="p-8 text-center">{t.practice.invalidRequest || "Invalid Request"}</div>;
     }
@@ -348,7 +369,35 @@ function PracticeContent() {
                     </Card>
 
 
-                    {/* Answer Input Section */}
+                    {/* Answer Input Section（E-ink 模式用自评流替代键盘输入） */}
+                    {eink ? (
+                        <Card className="border-2">
+                            <CardContent className="pt-6 space-y-4">
+                                {!showAnswer ? (
+                                    <Button size="lg" className="w-full text-lg py-6" onClick={() => setShowAnswer(true)}>
+                                        <Eye className="mr-2 h-5 w-5" />
+                                        {t.practice.checkAnswer || "查看答案"}
+                                    </Button>
+                                ) : !isSubmitted ? (
+                                    <>
+                                        <p className="text-center text-muted-foreground">
+                                            {t.practice.selfAssessPrompt || "对照答案，自评一下："}
+                                        </p>
+                                        <div className="flex gap-4">
+                                            <Button size="lg" variant="outline" className="flex-1 text-lg py-6 border-2" onClick={() => selfAssess(false)}>
+                                                <XCircle className="mr-2 h-5 w-5" />
+                                                {t.practice.selfIncorrect || "答错了"}
+                                            </Button>
+                                            <Button size="lg" className="flex-1 text-lg py-6" onClick={() => selfAssess(true)}>
+                                                <CheckCircle className="mr-2 h-5 w-5" />
+                                                {t.practice.selfCorrect || "答对了"}
+                                            </Button>
+                                        </div>
+                                    </>
+                                ) : null}
+                            </CardContent>
+                        </Card>
+                    ) : (
                     <Card className="border-blue-200">
                         <CardHeader>
                             <CardTitle className="text-blue-600">
@@ -372,9 +421,10 @@ function PracticeContent() {
                             />
                         </CardContent>
                     </Card>
+                    )}
 
                     {/* Submit/Result Section */}
-                    {!isSubmitted ? (
+                    {!isSubmitted && !eink && (
                         <div className="flex justify-center">
                             <Button
                                 size="lg"
@@ -386,7 +436,8 @@ function PracticeContent() {
                                 {t.app.submitAnswer || "提交答案"}
                             </Button>
                         </div>
-                    ) : (
+                    )}
+                    {isSubmitted && (
                         <Card className={isCorrect ? "border-green-500 bg-green-50" : "border-red-500 bg-red-50"}>
                             <CardContent className="pt-6">
                                 <div className="flex items-center gap-3 mb-4">

@@ -49,6 +49,12 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         suppressHydrationWarning={true}
       >
+        {/* E-ink 模式：首屏渲染前应用，避免闪烁（与 src/lib/use-eink.ts 保持一致） */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var p=new URLSearchParams(location.search).get('eink');if(p==='1'||p==='0'){localStorage.setItem('eink-mode',p)}if(localStorage.getItem('eink-mode')==='1'){document.documentElement.classList.add('eink')}}catch(e){}`,
+          }}
+        />
         <Providers>
           {children}
         </Providers>

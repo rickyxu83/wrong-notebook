@@ -165,3 +165,62 @@
     background-color: #f5f5f5 !important;
   }
 }
+
+/* ============ E-ink 模式（墨水屏学生版，?eink=1 或 localStorage 开启） ============ */
+
+/* 放大全局字号（rem 基准），10 寸屏远距离可读 */
+html.eink {
+  font-size: 18px;
+}
+
+/* 纯黑白高对比主题变量 */
+.eink {
+  --background: #ffffff;
+  --foreground: #000000;
+  --card: #ffffff;
+  --card-foreground: #000000;
+  --popover: #ffffff;
+  --popover-foreground: #000000;
+  --primary: #000000;
+  --primary-foreground: #ffffff;
+  --secondary: #eeeeee;
+  --secondary-foreground: #000000;
+  --muted: #f2f2f2;
+  --muted-foreground: #333333;
+  --accent: #eeeeee;
+  --accent-foreground: #000000;
+  --destructive: #000000;
+  --border: #000000;
+  --input: #000000;
+  --ring: #000000;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #000000;
+  --sidebar-primary: #000000;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #eeeeee;
+  --sidebar-accent-foreground: #000000;
+  --sidebar-border: #000000;
+  --sidebar-ring: #000000;
+}
+
+/* 墨水屏刷新慢：禁用一切动画/过渡/阴影，避免残影与闪烁 */
+.eink *,
+.eink *::before,
+.eink *::after {
+  animation: none !important;
+  transition: none !important;
+  box-shadow: none !important;
+}
+
+/* 学生版隐藏的管理入口（设置/上传/标签管理等） */
+.eink .eink-hide {
+  display: none !important;
+}
+
+/* 状态色底在黑白屏上不可辨：统一白底，靠黑色边框 + 图标 + 文字区分 */
+.eink .bg-green-50,
+.eink .bg-red-50,
+.eink .bg-blue-50,
+.eink .bg-orange-50 {
+  background-color: #ffffff !important;
+}

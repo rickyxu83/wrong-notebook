@@ -293,12 +293,13 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
-                <Button variant="outline" onClick={handleExportPrint}>
+                <Button variant="outline" className="eink-hide" onClick={handleExportPrint}>
                     <Printer className="mr-2 h-4 w-4" />
                     {t.notebook?.exportPrint || "导出打印"}
                 </Button>
                 <Button
                     variant={isSelectMode ? "secondary" : "outline"}
+                    className="eink-hide"
                     onClick={toggleSelectMode}
                 >
                     <ListChecks className="mr-2 h-4 w-4" />

@@ -448,7 +448,9 @@ function HomeContent() {
 
                     <div className="flex items-center gap-2 bg-card p-2 rounded-lg border shadow-sm shrink-0">
                         <BroadcastNotification />
-                        <SettingsDialog />
+                        <div className="eink-hide">
+                            <SettingsDialog />
+                        </div>
                         <Button
                             variant="ghost"
                             size="icon"
@@ -465,7 +467,7 @@ function HomeContent() {
                 <div className={initialNotebookId ? "flex justify-center mb-6" : "grid grid-cols-2 md:grid-cols-4 gap-4"}>
                     <Button
                         size="lg"
-                        className={`h-auto py-4 text-base shadow-sm hover:shadow-md transition-all ${initialNotebookId ? "w-full max-w-md" : ""}`}
+                        className={`eink-hide h-auto py-4 text-base shadow-sm hover:shadow-md transition-all ${initialNotebookId ? "w-full max-w-md" : ""}`}
                         variant={step === "upload" ? "default" : "secondary"}
                         onClick={() => { setStep("upload"); setInputMode("image"); }}
                     >
@@ -490,7 +492,7 @@ function HomeContent() {
                                 </Button>
                             </Link>
 
-                            <Link href="/tags" className="w-full">
+                            <Link href="/tags" className="w-full eink-hide">
                                 <Button
                                     variant="outline"
                                     size="lg"
@@ -520,7 +522,7 @@ function HomeContent() {
                 </div>
 
                 {step === "upload" && (
-                    <div className="space-y-4">
+                    <div className="space-y-4 eink-hide">
                         {/* Input mode tabs */}
                         <div className="flex gap-2 border-b">
                             <button

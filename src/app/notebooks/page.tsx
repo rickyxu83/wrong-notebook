@@ -99,11 +99,11 @@ export default function NotebooksPage() {
                         </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                        <Button onClick={() => setDialogOpen(true)} size="sm" className="hidden sm:flex">
+                        <Button onClick={() => setDialogOpen(true)} size="sm" className="eink-hide hidden sm:flex">
                             <Plus className="mr-2 h-4 w-4" />
                             {t.notebooks?.create || "New Notebook"}
                         </Button>
-                        <Button onClick={() => setDialogOpen(true)} size="icon" className="sm:hidden">
+                        <Button onClick={() => setDialogOpen(true)} size="icon" className="eink-hide sm:hidden">
                             <Plus className="h-4 w-4" />
                         </Button>
                         <Link href="/">
@@ -119,7 +119,7 @@ export default function NotebooksPage() {
                         <p className="text-muted-foreground mb-4">
                             {t.notebooks?.empty || "No notebooks yet."}
                         </p>
-                        <Button onClick={() => setDialogOpen(true)}>
+                        <Button onClick={() => setDialogOpen(true)} className="eink-hide">
                             <Plus className="mr-2 h-4 w-4" />
                             {t.notebooks?.createFirst || "Create Notebook"}
                         </Button>

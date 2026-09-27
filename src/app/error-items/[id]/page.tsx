@@ -514,7 +514,7 @@ export default function ErrorDetailPage() {
                             </>
                         )}
                         {item.originalImageUrl && (
-                            <Button variant="outline" size="sm" onClick={reanalyzeHandler} disabled={isReanalyzing}>
+                            <Button variant="outline" size="sm" className="eink-hide" onClick={reanalyzeHandler} disabled={isReanalyzing}>
                                 {isReanalyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
                                 {isReanalyzing ? (t.detail?.reanalyzing || "解析中...") : (t.detail?.reanalyze || "重新解析")}
                             </Button>
@@ -541,7 +541,7 @@ export default function ErrorDetailPage() {
                             variant="ghost"
                             size="sm"
                             onClick={deleteItem}
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            className="eink-hide text-red-600 hover:text-red-700 hover:bg-red-50"
                         >
                             <Trash2 className="mr-2 h-4 w-4" />
                             {t.detail.delete || "Delete"}
@@ -550,7 +550,7 @@ export default function ErrorDetailPage() {
                 </div>
 
                 <Card>
-                    <CardHeader><div className="flex justify-between items-center"><CardTitle>{t.detail.question}</CardTitle>{!isEditingQuestion && <Button variant="ghost" size="sm" onClick={startEditingQuestion}><Edit className="h-4 w-4 mr-1" />{t.common?.edit || "Edit"}</Button>}</div></CardHeader>
+                    <CardHeader><div className="flex justify-between items-center"><CardTitle>{t.detail.question}</CardTitle>{!isEditingQuestion && <Button variant="ghost" size="sm" className="eink-hide" onClick={startEditingQuestion}><Edit className="h-4 w-4 mr-1" />{t.common?.edit || "Edit"}</Button>}</div></CardHeader>
                     <CardContent className="space-y-4">
                         {isEditingQuestion ? (
                             <div className="space-y-3">
@@ -560,7 +560,7 @@ export default function ErrorDetailPage() {
                         ) : <MarkdownRenderer content={item.questionText} />}
 
                         <div className="space-y-2">
-                            <div className="flex justify-between items-center"><h4 className="text-sm font-semibold">{t.editor?.tags || "Knowledge Tags"}</h4>{!isEditingTags && <Button variant="ghost" size="sm" onClick={startEditingTags}><Edit className="h-4 w-4 mr-1" />{t.common?.edit || "Edit"}</Button>}</div>
+                            <div className="flex justify-between items-center"><h4 className="text-sm font-semibold">{t.editor?.tags || "Knowledge Tags"}</h4>{!isEditingTags && <Button variant="ghost" size="sm" className="eink-hide" onClick={startEditingTags}><Edit className="h-4 w-4 mr-1" />{t.common?.edit || "Edit"}</Button>}</div>
                             {isEditingTags ? (
                                 <div className="space-y-3">
                                     <TagInput value={tagsInput} onChange={setTagsInput} placeholder={t.editor?.tagsPlaceholder || "Enter or select knowledge tags..."} subject={inferSubjectFromName(item.subject?.name || null) || undefined} gradeStage={educationStage} />
@@ -571,7 +571,7 @@ export default function ErrorDetailPage() {
                         </div>
 
                         <div className="space-y-2 pt-4 border-t">
-                            <div className="flex justify-between items-center"><h4 className="text-sm font-semibold">{t.detail?.questionInfo || "Question Info"}</h4>{!isEditingMetadata && <Button variant="ghost" size="sm" onClick={startEditingMetadata}><Edit className="h-4 w-4 mr-1" />{t.common?.edit || "Edit"}</Button>}</div>
+                            <div className="flex justify-between items-center"><h4 className="text-sm font-semibold">{t.detail?.questionInfo || "Question Info"}</h4>{!isEditingMetadata && <Button variant="ghost" size="sm" className="eink-hide" onClick={startEditingMetadata}><Edit className="h-4 w-4 mr-1" />{t.common?.edit || "Edit"}</Button>}</div>
                             {isEditingMetadata ? (
                                 <div className="space-y-3">
                                     <div className="space-y-2"><label className="text-sm text-muted-foreground">{t.notebooks?.title || "Notebook"}</label><NotebookSelector value={notebookInput || undefined} onChange={setNotebookInput} /></div>
@@ -601,7 +601,7 @@ export default function ErrorDetailPage() {
 
                 <div className="grid gap-6 lg:grid-cols-2">
                     <Card className="border-primary/20">
-                        <CardHeader><div className="flex justify-between items-center"><CardTitle className="text-primary">{t.detail.correctAnswer}</CardTitle>{!isEditingAnswer && <Button variant="ghost" size="sm" onClick={startEditingAnswer}><Edit className="h-4 w-4 mr-1" />{t.common?.edit || "Edit"}</Button>}</div></CardHeader>
+                        <CardHeader><div className="flex justify-between items-center"><CardTitle className="text-primary">{t.detail.correctAnswer}</CardTitle>{!isEditingAnswer && <Button variant="ghost" size="sm" className="eink-hide" onClick={startEditingAnswer}><Edit className="h-4 w-4 mr-1" />{t.common?.edit || "Edit"}</Button>}</div></CardHeader>
                         <CardContent className="space-y-4">
                             {isEditingAnswer ? (
                                 <div className="space-y-3"><Textarea value={answerInput} onChange={e => setAnswerInput(e.target.value)} placeholder="Enter answer..." rows={5} className="w-full font-mono text-sm" /><div className="flex gap-2"><Button size="sm" onClick={saveAnswerHandler}><Save className="h-4 w-4 mr-1" />{t.common?.save || "Save"}</Button><Button size="sm" variant="outline" onClick={cancelEditingAnswer}><X className="h-4 w-4 mr-1" />{t.common?.cancel || "Cancel"}</Button></div></div>
@@ -610,7 +610,7 @@ export default function ErrorDetailPage() {
                         </CardContent>
                     </Card>
                     <Card>
-                        <CardHeader><div className="flex justify-between items-center"><CardTitle>{t.editor?.wrongAnswerText || "我的答案"}</CardTitle>{!isEditingMistake && <Button variant="ghost" size="sm" onClick={startEditingMistake}><Edit className="h-4 w-4 mr-1" />{t.common?.edit || "Edit"}</Button>}</div></CardHeader>
+                        <CardHeader><div className="flex justify-between items-center"><CardTitle>{t.editor?.wrongAnswerText || "我的答案"}</CardTitle>{!isEditingMistake && <Button variant="ghost" size="sm" className="eink-hide" onClick={startEditingMistake}><Edit className="h-4 w-4 mr-1" />{t.common?.edit || "Edit"}</Button>}</div></CardHeader>
                         <CardContent className="space-y-4">
                             {isEditingMistake ? (
                                 <div className="space-y-4">
@@ -630,18 +630,18 @@ export default function ErrorDetailPage() {
                 </div>
 
                 <div className="grid gap-6 lg:grid-cols-2">
-                    <Card><CardHeader><div className="flex justify-between items-center"><CardTitle>{t.detail.analysis}</CardTitle>{!isEditingAnalysis && <Button variant="ghost" size="sm" onClick={startEditingAnalysis}><Edit className="h-4 w-4 mr-1" />{t.common?.edit || "Edit"}</Button>}</div></CardHeader><CardContent>{isEditingAnalysis ? (<div className="space-y-3"><Textarea value={analysisInput} onChange={e => setAnalysisInput(e.target.value)} placeholder="Enter analysis..." rows={12} className="w-full font-mono text-sm" /><div className="flex gap-2"><Button size="sm" onClick={saveAnalysisHandler}><Save className="h-4 w-4 mr-1" />{t.common?.save || "Save"}</Button><Button size="sm" variant="outline" onClick={cancelEditingAnalysis}><X className="h-4 w-4 mr-1" />{t.common?.cancel || "Cancel"}</Button></div></div>) : <MarkdownRenderer content={item.analysis} />}</CardContent></Card>
-                    <Card><CardHeader><div className="flex justify-between items-center"><CardTitle>{t.detail?.mistakeAnalysis || "错因分析"}</CardTitle>{!isEditingMistake && <Button variant="ghost" size="sm" onClick={startEditingMistake}><Edit className="h-4 w-4 mr-1" />{t.common?.edit || "Edit"}</Button>}</div></CardHeader><CardContent>{isEditingMistake ? (<div className="space-y-4"><div className="space-y-2"><label className="text-sm text-muted-foreground">{t.editor?.mistakeAnalysis || "错因分析"}</label><Textarea value={mistakeAnalysisInput} onChange={e => setMistakeAnalysisInput(e.target.value)} rows={8} className="w-full font-mono text-sm" /></div><div className="flex gap-2"><Button size="sm" onClick={saveMistakeHandler}><Save className="h-4 w-4 mr-1" />{t.common?.save || "Save"}</Button><Button size="sm" variant="outline" onClick={cancelEditingMistake}><X className="h-4 w-4 mr-1" />{t.common?.cancel || "Cancel"}</Button></div></div>) : item.mistakeAnalysis ? <MarkdownRenderer content={item.mistakeAnalysis} /> : <p className="text-sm text-muted-foreground italic">{t.detail?.noMistakeAnalysis || "暂无错因分析"}</p>}</CardContent></Card>
+                    <Card><CardHeader><div className="flex justify-between items-center"><CardTitle>{t.detail.analysis}</CardTitle>{!isEditingAnalysis && <Button variant="ghost" size="sm" className="eink-hide" onClick={startEditingAnalysis}><Edit className="h-4 w-4 mr-1" />{t.common?.edit || "Edit"}</Button>}</div></CardHeader><CardContent>{isEditingAnalysis ? (<div className="space-y-3"><Textarea value={analysisInput} onChange={e => setAnalysisInput(e.target.value)} placeholder="Enter analysis..." rows={12} className="w-full font-mono text-sm" /><div className="flex gap-2"><Button size="sm" onClick={saveAnalysisHandler}><Save className="h-4 w-4 mr-1" />{t.common?.save || "Save"}</Button><Button size="sm" variant="outline" onClick={cancelEditingAnalysis}><X className="h-4 w-4 mr-1" />{t.common?.cancel || "Cancel"}</Button></div></div>) : <MarkdownRenderer content={item.analysis} />}</CardContent></Card>
+                    <Card><CardHeader><div className="flex justify-between items-center"><CardTitle>{t.detail?.mistakeAnalysis || "错因分析"}</CardTitle>{!isEditingMistake && <Button variant="ghost" size="sm" className="eink-hide" onClick={startEditingMistake}><Edit className="h-4 w-4 mr-1" />{t.common?.edit || "Edit"}</Button>}</div></CardHeader><CardContent>{isEditingMistake ? (<div className="space-y-4"><div className="space-y-2"><label className="text-sm text-muted-foreground">{t.editor?.mistakeAnalysis || "错因分析"}</label><Textarea value={mistakeAnalysisInput} onChange={e => setMistakeAnalysisInput(e.target.value)} rows={8} className="w-full font-mono text-sm" /></div><div className="flex gap-2"><Button size="sm" onClick={saveMistakeHandler}><Save className="h-4 w-4 mr-1" />{t.common?.save || "Save"}</Button><Button size="sm" variant="outline" onClick={cancelEditingMistake}><X className="h-4 w-4 mr-1" />{t.common?.cancel || "Cancel"}</Button></div></div>) : item.mistakeAnalysis ? <MarkdownRenderer content={item.mistakeAnalysis} /> : <p className="text-sm text-muted-foreground italic">{t.detail?.noMistakeAnalysis || "暂无错因分析"}</p>}</CardContent></Card>
                 </div>
 
                 <div className="space-y-6">
                     {item.geogebraCommands ? (
                         <GeogebraDemo commands={item.geogebraCommands} height={700} showToolBar={true} showAlgebraInput={false} showMenuBar={false} onRegenerate={handleAnalyzeGeogebra} onSaveCommands={handleSaveGeogebraCommands} />
                     ) : (
-                        <div className="rounded-lg border border-dashed p-4"><div className="flex items-center justify-between"><div className="flex items-center gap-2 text-sm text-muted-foreground"><Box className="h-4 w-4" /><span>GeoGebra 动态演示</span></div><Button variant="outline" size="sm" onClick={() => handleAnalyzeGeogebra()} disabled={isAnalyzingGeogebra}>{isAnalyzingGeogebra ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />AI 分析中...</> : <><Box className="mr-2 h-4 w-4" />生成演示</>}</Button></div>{geogebraError && <p className="text-xs text-muted-foreground mt-2">{geogebraError}</p>}<p className="text-xs text-muted-foreground mt-2">AI 将判断本题是否可以用 GeoGebra 进行动态演示，如适合则自动生成交互式图形</p></div>
+                        <div className="rounded-lg border border-dashed p-4"><div className="flex items-center justify-between"><div className="flex items-center gap-2 text-sm text-muted-foreground"><Box className="h-4 w-4" /><span>GeoGebra 动态演示</span></div><Button variant="outline" size="sm" className="eink-hide" onClick={() => handleAnalyzeGeogebra()} disabled={isAnalyzingGeogebra}>{isAnalyzingGeogebra ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />AI 分析中...</> : <><Box className="mr-2 h-4 w-4" />生成演示</>}</Button></div>{geogebraError && <p className="text-xs text-muted-foreground mt-2">{geogebraError}</p>}<p className="text-xs text-muted-foreground mt-2">AI 将判断本题是否可以用 GeoGebra 进行动态演示，如适合则自动生成交互式图形</p></div>
                     )}
 
-                    <Card><CardHeader><div className="flex justify-between items-center"><CardTitle>{t.detail.yourNotes}</CardTitle>{!isEditingNotes && <Button variant="ghost" size="sm" onClick={startEditingNotes}><Edit className="h-4 w-4 mr-1" />{t.detail.editNotes || "Edit"}</Button>}</div></CardHeader><CardContent>{isEditingNotes ? (<div className="space-y-3"><Textarea value={notesInput} onChange={e => setNotesInput(e.target.value)} placeholder={t.detail.notesPlaceholder || "Enter your notes..."} rows={5} className="w-full" /><div className="flex gap-2"><Button size="sm" onClick={saveNotes}><Save className="h-4 w-4 mr-1" />{t.common.save || "Save"}</Button><Button size="sm" variant="outline" onClick={cancelEditingNotes}><X className="h-4 w-4 mr-1" />{t.common.cancel || "Cancel"}</Button></div></div>) : <div className="whitespace-pre-wrap">{item.userNotes ? <p className="text-foreground">{item.userNotes}</p> : <p className="text-muted-foreground italic">{t.detail.noNotes}</p>}</div>}</CardContent></Card>
+                    <Card><CardHeader><div className="flex justify-between items-center"><CardTitle>{t.detail.yourNotes}</CardTitle>{!isEditingNotes && <Button variant="ghost" size="sm" className="eink-hide" onClick={startEditingNotes}><Edit className="h-4 w-4 mr-1" />{t.detail.editNotes || "Edit"}</Button>}</div></CardHeader><CardContent>{isEditingNotes ? (<div className="space-y-3"><Textarea value={notesInput} onChange={e => setNotesInput(e.target.value)} placeholder={t.detail.notesPlaceholder || "Enter your notes..."} rows={5} className="w-full" /><div className="flex gap-2"><Button size="sm" onClick={saveNotes}><Save className="h-4 w-4 mr-1" />{t.common.save || "Save"}</Button><Button size="sm" variant="outline" onClick={cancelEditingNotes}><X className="h-4 w-4 mr-1" />{t.common.cancel || "Cancel"}</Button></div></div>) : <div className="whitespace-pre-wrap">{item.userNotes ? <p className="text-foreground">{item.userNotes}</p> : <p className="text-muted-foreground italic">{t.detail.noNotes}</p>}</div>}</CardContent></Card>
                 </div>
             </div>
 

@@ -70,6 +70,7 @@ export default function NotebookDetailPage() {
                             <Button
                                 variant="ghost"
                                 size="icon-sm"
+                                className="eink-hide"
                                 onClick={() => setRenameDialogOpen(true)}
                                 title={t.notebooks?.rename || "Rename"}
                             >
@@ -81,7 +82,7 @@ export default function NotebookDetailPage() {
                         </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                        <Link href={`/notebooks/${notebook.id}/add`}>
+                        <Link href={`/notebooks/${notebook.id}/add`} className="eink-hide">
                             <Button size="sm" className="hidden sm:flex">
                                 <Plus className="mr-2 h-4 w-4" />
                                 {t.notebooks?.addError || "Add Error"}
