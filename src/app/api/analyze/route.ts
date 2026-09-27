@@ -23,7 +23,7 @@ export async function POST(req: Request) {
 
     try {
         const body = await req.json();
-        let { imageBase64, mimeType, language, subjectId, multi } = body;
+        let { imageBase64, mimeType, language, subjectId, multi, grade } = body;
 
         logger.debug({
             imageLength: imageBase64?.length,
@@ -104,11 +104,14 @@ export async function POST(req: Request) {
         logger.info({ userGrade, userGradeSemester, subject: subjectChinese, multi: !!multi }, 'Calling AI service for image analysis');
         const aiService = getAIService();
 
-        // 多题模式（整卷拆分）：一次调用识别所有题目，返回数组；可用专用实例（坐标定位要求高）
-        if (multi) {
+        // 多题模式（整卷拆分）/ 批改模式（已作答试卷）：一次调用识别所有题目，返回数组
+        // 两种模式都走专用实例（坐标定位/手写识别对模型要求高）
+        if (multi || grade) {
             const multiService = getAIServiceForMultiAnalyze();
-            const questions = await multiService.analyzeImageMulti(imageBase64, mimeType, language, userGrade, subjectChinese, userGradeSemester);
-            logger.info({ count: questions.length }, 'AI multi-question analysis successful');
+            const questions = grade
+                ? await multiService.gradeExamMulti(imageBase64, mimeType, language, userGrade, subjectChinese, userGradeSemester)
+                : await multiService.analyzeImageMulti(imageBase64, mimeType, language, userGrade, subjectChinese, userGradeSemester);
+            logger.info({ count: questions.length, grade: !!grade }, 'AI multi-question analysis successful');
             return NextResponse.json({ questions });
         }
 

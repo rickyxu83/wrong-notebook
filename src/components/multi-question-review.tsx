@@ -8,11 +8,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { NotebookSelector } from "@/components/notebook-selector";
 import { InlineMath } from "@/components/inline-math";
-import { Loader2, Save, X } from "lucide-react";
+import { Loader2, Save, X, ImagePlus } from "lucide-react";
 import { ParsedQuestion } from "@/lib/ai";
 import { apiClient } from "@/lib/api-client";
 import { cropByBoundaries, computeQuestionBoundaries } from "@/lib/image-utils";
 import { PageCutEditor } from "@/components/page-cut-editor";
+import { ImageCropper } from "@/components/image-cropper";
 import { useLanguage } from "@/contexts/LanguageContext";
 
 interface EditableQuestion extends ParsedQuestion {
@@ -33,13 +34,21 @@ interface MultiQuestionReviewProps {
  */
 export function MultiQuestionReview({ questions, imagePreview, defaultSubjectId, onSaved, onCancel }: MultiQuestionReviewProps) {
     const { t } = useLanguage();
-    const [items, setItems] = useState<EditableQuestion[]>(questions.map((q) => ({ ...q, included: true })));
+    // 批改模式：任一题带对错判定即为批改场景，默认只勾错题；否则（未作答卷子）默认全勾
+    const gradingMode = questions.some((q) => q.isCorrect !== null && q.isCorrect !== undefined);
+    const [items, setItems] = useState<EditableQuestion[]>(
+        questions.map((q) => ({ ...q, included: gradingMode ? q.isCorrect === false : true }))
+    );
     const [notebookId, setNotebookId] = useState<string | null>(defaultSubjectId || null);
     const [saving, setSaving] = useState(false);
     const [saveProgress, setSaveProgress] = useState(0);
     // 图片切线（归一化 0-1，N+1 条）：null = 不切分，共用整页原图
     const [boundaries, setBoundaries] = useState<number[] | null>(null);
     const [showCutEditor, setShowCutEditor] = useState(false);
+    // 每题图片预览（按切线自动裁出）与手动重裁覆盖
+    const [previews, setPreviews] = useState<string[] | null>(null);
+    const [customImages, setCustomImages] = useState<Record<number, string>>({});
+    const [cropTarget, setCropTarget] = useState<number | null>(null); // 正在为哪一道题手动裁图
 
     // 挂载后自动计算建议切线（AI bbox 提示 + 空白带精修）
     useEffect(() => {
@@ -54,6 +63,23 @@ export function MultiQuestionReview({ questions, imagePreview, defaultSubjectId,
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    // 切线变化后重新生成每题预览图
+    useEffect(() => {
+        if (!imagePreview || !boundaries || boundaries.length !== questions.length + 1) return;
+        cropByBoundaries(imagePreview, boundaries).then(setPreviews).catch(() => setPreviews(null));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [boundaries]);
+
+    /** 手动裁图完成：Blob → dataURL，覆盖该题图片 */
+    const handleManualCrop = (index: number) => (blob: Blob) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            setCustomImages((prev) => ({ ...prev, [index]: reader.result as string }));
+            setCropTarget(null);
+        };
+        reader.readAsDataURL(blob);
+    };
 
     const patch = (index: number, p: Partial<EditableQuestion>) =>
         setItems((prev) => prev.map((q, i) => (i === index ? { ...q, ...p } : q)));
@@ -77,14 +103,15 @@ export function MultiQuestionReview({ questions, imagePreview, defaultSubjectId,
                 }
             }
             for (const q of toSave) {
-                const itemImage = crops?.[items.indexOf(q)] ?? imagePreview ?? "";
+                // 优先级：手动重裁 > 切线自动裁 > 整页原图
+                const itemImage = customImages[items.indexOf(q)] ?? crops?.[items.indexOf(q)] ?? imagePreview ?? "";
                 await apiClient.post("/api/error-items", {
                     questionText: q.questionText,
                     answerText: q.answerText,
                     analysis: q.analysis,
                     wrongAnswerText: q.wrongAnswerText || "",
                     mistakeAnalysis: q.mistakeAnalysis || "",
-                    mistakeStatus: q.mistakeStatus || "unknown",
+                    mistakeStatus: q.isCorrect === false ? "wrong_attempt" : (q.mistakeStatus || "unknown"),
                     knowledgePoints: q.knowledgePoints || [],
                     originalImageUrl: itemImage,
                     subjectId: notebookId || undefined,
@@ -105,11 +132,31 @@ export function MultiQuestionReview({ questions, imagePreview, defaultSubjectId,
         <div className="space-y-6">
             <div className="text-center space-y-2">
                 <h2 className="text-2xl font-bold">
-                    {(t.multiReview?.title || "识别到 {count} 道题").replace("{count}", String(questions.length))}
+                    {(gradingMode
+                        ? (t.multiReview?.gradeTitle || "批改完成：共 {count} 题")
+                        : (t.multiReview?.title || "识别到 {count} 道题"))
+                        .replace("{count}", String(questions.length))}
                 </h2>
                 <p className="text-muted-foreground">
-                    {t.multiReview?.subtitle || "逐题核对内容，不需要导入的取消勾选"}
+                    {gradingMode
+                        ? (t.multiReview?.gradeSubtitle || "错题已默认勾选，确认后加入错题集")
+                        : (t.multiReview?.subtitle || "逐题核对内容，不需要导入的取消勾选")}
                 </p>
+                {gradingMode && (
+                    <p className="text-sm">
+                        <span className="text-red-600 font-medium">
+                            {(t.multiReview?.gradeWrongCount || "错 {count} 题").replace("{count}", String(items.filter((q) => q.isCorrect === false).length))}
+                        </span>
+                        {" · "}
+                        <span className="text-green-600">
+                            {(t.multiReview?.gradeCorrectCount || "对 {count} 题").replace("{count}", String(items.filter((q) => q.isCorrect === true).length))}
+                        </span>
+                        {" · "}
+                        <span className="text-muted-foreground">
+                            {(t.multiReview?.gradeUnknownCount || "{count} 题未作答/无法判定").replace("{count}", String(items.filter((q) => q.isCorrect == null).length))}
+                        </span>
+                    </p>
+                )}
             </div>
 
             {/* 目标错题本（对整卷生效） */}
@@ -165,6 +212,16 @@ export function MultiQuestionReview({ questions, imagePreview, defaultSubjectId,
                                     />
                                     <span>{(t.multiReview?.questionNumber || "第 {index} 题").replace("{index}", String(i + 1))}</span>
                                 </label>
+                                {/* 批改判定徽章 */}
+                                {q.isCorrect === true && (
+                                    <Badge className="bg-green-600 text-white">{t.multiReview?.verdictCorrect || "答对"}</Badge>
+                                )}
+                                {q.isCorrect === false && (
+                                    <Badge variant="destructive">{t.multiReview?.verdictWrong || "答错"}</Badge>
+                                )}
+                                {gradingMode && q.isCorrect == null && (
+                                    <Badge variant="secondary">{t.multiReview?.verdictUnknown || "未作答/未知"}</Badge>
+                                )}
                                 {q.subject && <Badge variant="secondary">{q.subject}</Badge>}
                                 {q.knowledgePoints?.map((kp) => (
                                     <Badge key={kp} variant="outline" className="font-normal">
@@ -174,6 +231,33 @@ export function MultiQuestionReview({ questions, imagePreview, defaultSubjectId,
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-3">
+                            {/* 批改模式：展示学生手写作答转录 */}
+                            {q.wrongAnswerText && (
+                                <p className="text-sm bg-muted/60 rounded px-3 py-2">
+                                    <span className="text-muted-foreground">{t.multiReview?.studentAnswer || "学生作答"}：</span>
+                                    <span className="font-medium">{q.wrongAnswerText}</span>
+                                </p>
+                            )}
+                            {/* 本题图片：手动重裁 > 自动裁切预览；提供手动补充按钮兜底 */}
+                            {(customImages[i] || previews?.[i] || imagePreview) && (
+                                <div className="flex items-start gap-3">
+                                    <img
+                                        src={customImages[i] || previews?.[i] || imagePreview || ""}
+                                        alt={`question-${i + 1}`}
+                                        className="max-h-28 rounded border"
+                                    />
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        disabled={saving}
+                                        onClick={() => setCropTarget(i)}
+                                    >
+                                        <ImagePlus className="mr-1 h-3.5 w-3.5" />
+                                        {t.multiReview?.adjustImage || "手动裁图"}
+                                    </Button>
+                                </div>
+                            )}
                             <Textarea
                                 value={q.questionText}
                                 onChange={(e) => patch(i, { questionText: e.target.value })}
@@ -208,6 +292,16 @@ export function MultiQuestionReview({ questions, imagePreview, defaultSubjectId,
                 ))}
             </div>
 
+            {/* 手动裁图：在整页原图上框选本题区域 */}
+            {cropTarget !== null && imagePreview && (
+                <ImageCropper
+                    imageSrc={imagePreview}
+                    open={cropTarget !== null}
+                    onClose={() => setCropTarget(null)}
+                    onCropComplete={handleManualCrop(cropTarget)}
+                />
+            )}
+
             <div className="flex justify-center gap-4 pb-8">
                 <Button variant="outline" onClick={onCancel} disabled={saving}>
                     <X className="mr-2 h-4 w-4" />
@@ -224,8 +318,7 @@ export function MultiQuestionReview({ questions, imagePreview, defaultSubjectId,
                     ) : (
                         <>
                             <Save className="mr-2 h-4 w-4" />
-                            {(t.multiReview?.saveAll || "保存 {count} 道错题").replace("{count}", String(includedCount))}
-                        </>
+                            {(t.multiReview?.saveAll || "保存 {count} 道错题").replace("{count}", String(includedCount))}                        </>
                     )}
                 </Button>
             </div>

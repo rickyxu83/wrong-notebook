@@ -35,6 +35,7 @@ vi.mock('@/lib/prisma', () => ({
 // Mock AI service
 vi.mock('@/lib/ai', () => ({
     getAIService: vi.fn(() => mocks.mockAIService),
+    getAIServiceForMultiAnalyze: vi.fn(() => mocks.mockAIService),
 }));
 
 // Mock next-auth

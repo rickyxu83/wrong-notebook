@@ -296,3 +296,39 @@ export async function cropByBoundaries(dataUrl: string, boundaries: number[]): P
         return Array(n).fill(dataUrl);
     }
 }
+
+/**
+ * 按 bbox 直接裁切（归一化 0-1000 [ymin,xmin,ymax,xmax]，四周留 1% 边距）。
+ * 适用于坐标可信的场景（如 Kimi 实例）；异常时回退整图。
+ */
+export async function cropByBbox(
+    dataUrl: string,
+    bbox: [number, number, number, number],
+    padFrac: number = 0.01
+): Promise<string> {
+    try {
+        const img = await loadImage(dataUrl);
+        const W = img.naturalWidth;
+        const H = img.naturalHeight;
+        if (!W || !H) return dataUrl;
+
+        const [ymin, xmin, ymax, xmax] = bbox;
+        const padY = Math.round(H * padFrac);
+        const padX = Math.round(W * padFrac * 0.3);
+        const top = Math.max(0, Math.round((ymin / 1000) * H) - padY);
+        const bottom = Math.min(H, Math.round((ymax / 1000) * H) + padY);
+        const left = Math.max(0, Math.round((xmin / 1000) * W) - padX);
+        const right = Math.min(W, Math.round((xmax / 1000) * W) + padX);
+        if (bottom - top < H * 0.02 || right - left < W * 0.05) return dataUrl;
+
+        const out = document.createElement('canvas');
+        out.width = right - left;
+        out.height = bottom - top;
+        const octx = out.getContext('2d');
+        if (!octx) return dataUrl;
+        octx.drawImage(img, left, top, right - left, bottom - top, 0, 0, out.width, out.height);
+        return out.toDataURL('image/jpeg', 0.85);
+    } catch {
+        return dataUrl;
+    }
+}

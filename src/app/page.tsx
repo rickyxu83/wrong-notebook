@@ -143,7 +143,7 @@ function HomeContent() {
                 imageBase64: base64Image,
                 language: language,
                 subjectId: initialNotebookId || autoSelectedNotebookId || undefined,
-                multi: true // 整卷拆分：AI 识别图片中所有题目，一道题也会返回单元素数组
+                grade: true // 扫描统一走批改能力分析：自动识别有无作答笔迹，有则逐题判对错（超集，未作答卷退化为普通拆分）
             }, { timeout: aiTimeout }); // Use configured timeout
             const apiDuration = Date.now() - apiStartTime;
             frontendLogger.info('[HomeAnalyze]', 'API response received, validating data', {

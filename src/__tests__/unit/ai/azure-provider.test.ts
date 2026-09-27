@@ -386,6 +386,32 @@ describe('Azure OpenAI Provider 响应解析', () => {
             expect(results[0].questionText).toContain('最小值');
         });
 
+        it('批改模式应解析 is_correct 判定', () => {
+            const mockResponse = `
+<question>
+<question_text>1. 计算 2+3</question_text>
+<answer_text>5</answer_text>
+<analysis>加法运算。</analysis>
+<student_answer>6</student_answer>
+<is_correct>false</is_correct>
+</question>
+<question>
+<question_text>2. 计算 4+5</question_text>
+<answer_text>9</answer_text>
+<analysis>加法运算。</analysis>
+<student_answer>9</student_answer>
+<is_correct>true</is_correct>
+</question>
+            `.trim();
+
+            const results = asPrivateProvider(provider).parseResponseMulti(mockResponse);
+
+            expect(results).toHaveLength(2);
+            expect(results[0].isCorrect).toBe(false);
+            expect(results[0].wrongAnswerText).toBe('6');
+            expect(results[1].isCorrect).toBe(true);
+        });
+
         it('无效块应跳过，全部无效时报错', () => {
             const mixedResponse = `
 <question>

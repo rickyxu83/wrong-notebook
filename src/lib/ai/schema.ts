@@ -20,6 +20,8 @@ export const ParsedQuestionSchema = z.object({
     requiresImage: z.boolean().optional().default(false), // 题目是否依赖图片（如几何题）
     // 整卷拆分时由 AI 返回的题目包围盒：[ymin, xmin, ymax, xmax]，0-1000 归一化
     bbox: z.array(z.number()).length(4).optional(),
+    // 批改模式：学生作答是否正确（true/false/unknown→null）
+    isCorrect: z.boolean().nullable().optional(),
 });
 
 /**

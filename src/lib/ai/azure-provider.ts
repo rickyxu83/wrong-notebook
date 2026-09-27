@@ -1,6 +1,6 @@
 import { AzureOpenAI } from "openai";
 import { AIService, ParsedQuestion, DifficultyLevel, ReanswerQuestionResult, GeogebraAnalysisResult } from "./types";
-import { generateAnalyzePrompt, generateAnalyzeMultiPrompt, generateSimilarQuestionPrompt, generateReanswerPrompt, generateGeogebraPrompt } from './prompts';
+import { generateAnalyzePrompt, generateAnalyzeMultiPrompt, generateGradePrompt, generateSimilarQuestionPrompt, generateReanswerPrompt, generateGeogebraPrompt } from './prompts';
 import { getAppConfig } from '../config';
 import { safeParseParsedQuestion } from './schema';
 import { getMathTagsFromDB, getTagsFromDB } from './tag-service';
@@ -89,7 +89,7 @@ export class AzureOpenAIProvider implements AIService {
         const subjectRaw = this.extractTag(text, "subject");
         const knowledgePointsRaw = this.extractTag(text, "knowledge_points");
         const requiresImageRaw = this.extractTag(text, "requires_image");
-        const wrongAnswerText = this.extractTag(text, "wrong_answer_text") || "";
+        const wrongAnswerText = this.extractTag(text, "wrong_answer_text") || this.extractTag(text, "student_answer") || ""; // student_answer: 批改模式转录
         const mistakeAnalysis = this.extractTag(text, "mistake_analysis") || "";
         const mistakeStatusRaw = this.extractTag(text, "mistake_status");
 
@@ -119,6 +119,10 @@ export class AzureOpenAIProvider implements AIService {
         // 整卷拆分时的题目包围盒（仅多题模式输出此标签）
         const bbox = parseBbox(this.extractTag(text, "bbox"));
 
+        // 批改模式：学生作答对错判定
+        const isCorrectRaw = this.extractTag(text, "is_correct")?.toLowerCase().trim();
+        const isCorrect = isCorrectRaw === 'true' ? true : isCorrectRaw === 'false' ? false : null;
+
         // Construct Result
         const result: ParsedQuestion = {
             questionText,
@@ -131,6 +135,7 @@ export class AzureOpenAIProvider implements AIService {
             knowledgePoints,
             requiresImage,
             ...(bbox ? { bbox } : {}),
+            ...(isCorrect !== null ? { isCorrect } : {}),
         };
 
         // Final Schema Validation
@@ -174,7 +179,7 @@ export class AzureOpenAIProvider implements AIService {
         subject?: string | null,
         gradeSemester?: string | null
     ): Promise<ParsedQuestion> {
-        return this.analyzeImageInternal(imageBase64, mimeType, language, grade, subject, gradeSemester, false) as Promise<ParsedQuestion>;
+        return this.analyzeImageInternal(imageBase64, mimeType, language, grade, subject, gradeSemester, 'single') as Promise<ParsedQuestion>;
     }
 
     async analyzeImageMulti(
@@ -185,7 +190,18 @@ export class AzureOpenAIProvider implements AIService {
         subject?: string | null,
         gradeSemester?: string | null
     ): Promise<ParsedQuestion[]> {
-        return this.analyzeImageInternal(imageBase64, mimeType, language, grade, subject, gradeSemester, true) as Promise<ParsedQuestion[]>;
+        return this.analyzeImageInternal(imageBase64, mimeType, language, grade, subject, gradeSemester, 'multi') as Promise<ParsedQuestion[]>;
+    }
+
+    async gradeExamMulti(
+        imageBase64: string,
+        mimeType: string = 'image/jpeg',
+        language: 'zh' | 'en' = 'zh',
+        grade?: 7 | 8 | 9 | 10 | 11 | 12 | null,
+        subject?: string | null,
+        gradeSemester?: string | null
+    ): Promise<ParsedQuestion[]> {
+        return this.analyzeImageInternal(imageBase64, mimeType, language, grade, subject, gradeSemester, 'grade') as Promise<ParsedQuestion[]>;
     }
 
     private async analyzeImageInternal(
@@ -195,7 +211,7 @@ export class AzureOpenAIProvider implements AIService {
         grade?: 7 | 8 | 9 | 10 | 11 | 12 | null,
         subject?: string | null,
         gradeSemester?: string | null,
-        multi: boolean = false
+        mode: 'single' | 'multi' | 'grade' = 'single'
     ): Promise<ParsedQuestion | ParsedQuestion[]> {
         const config = getAppConfig();
 
@@ -207,7 +223,7 @@ export class AzureOpenAIProvider implements AIService {
         const prefetchedBiologyTags = (subject === '生物' || !subject) ? await getTagsFromDB('biology') : [];
         const prefetchedEnglishTags = (subject === '英语' || !subject) ? await getTagsFromDB('english') : [];
 
-        const systemPrompt = (multi ? generateAnalyzeMultiPrompt : generateAnalyzePrompt)(language, grade, subject, {
+        const systemPrompt = (mode === 'grade' ? generateGradePrompt : mode === 'multi' ? generateAnalyzeMultiPrompt : generateAnalyzePrompt)(language, grade, subject, {
             customTemplate: config.prompts?.analyze,
             prefetchedMathTags,
             prefetchedPhysicsTags,
@@ -249,7 +265,7 @@ export class AzureOpenAIProvider implements AIService {
                     },
                 ],
                 // 多题模式输出更长，且推理模型会消耗 max_tokens 思考，给足余量
-                max_tokens: multi ? 16384 : 8192,
+                max_tokens: mode === 'single' ? 8192 : 16384,
             });
 
             logger.box('📦 Full API Response', JSON.stringify(response, null, 2));
@@ -265,7 +281,7 @@ export class AzureOpenAIProvider implements AIService {
             logger.box('🤖 AI Raw Response', text);
 
             if (!text) throw new Error("Empty response from AI");
-            const parsedResult = multi ? this.parseResponseMulti(text) : this.parseResponse(text);
+            const parsedResult = mode === 'single' ? this.parseResponse(text) : this.parseResponseMulti(text);
 
             logger.box('✅ Parsed & Validated Result', JSON.stringify(parsedResult, null, 2));
 
@@ -410,7 +426,7 @@ Knowledge Points: ${knowledgePoints.join(", ")}
             const analysis = this.extractTag(text, "analysis") || "";
             const knowledgePointsRaw = this.extractTag(text, "knowledge_points") || "";
             const knowledgePoints = knowledgePointsRaw.split(/[,，\n]/).map(k => k.trim()).filter(k => k.length > 0);
-            const wrongAnswerText = this.extractTag(text, "wrong_answer_text") || "";
+            const wrongAnswerText = this.extractTag(text, "wrong_answer_text") || this.extractTag(text, "student_answer") || ""; // student_answer: 批改模式转录
             const mistakeAnalysis = this.extractTag(text, "mistake_analysis") || "";
             const mistakeStatus = normalizeMistakeStatusForSave(
                 this.extractTag(text, "mistake_status"),
