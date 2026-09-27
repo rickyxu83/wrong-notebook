@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Loader2 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
@@ -40,13 +40,21 @@ export function ProgressFeedback({ status, progress, message, className, modelNa
         return () => clearInterval(timer);
     }, [status, rotatingMessages]);
 
-    // 已等待时长（每秒跳动，让长时间等待可见）
+    // 已等待时长（墙钟时间：后台被浏览器冻结的时段也计入，切回来直接显示真实耗时）
     const [elapsed, setElapsed] = useState(0);
+    const startTsRef = useRef<number>(0);
     useEffect(() => {
         if (status === 'idle') return;
+        startTsRef.current = Date.now();
         setElapsed(0);
-        const timer = setInterval(() => setElapsed((s) => s + 1), 1000);
-        return () => clearInterval(timer);
+        const tick = () => setElapsed(Math.floor((Date.now() - startTsRef.current) / 1000));
+        const timer = setInterval(tick, 1000);
+        // 从后台切回时立即刷新（后台 interval 被节流/冻结）
+        document.addEventListener('visibilitychange', tick);
+        return () => {
+            clearInterval(timer);
+            document.removeEventListener('visibilitychange', tick);
+        };
     }, [status]);
     const elapsedText = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`;
 

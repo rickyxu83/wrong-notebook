@@ -229,15 +229,19 @@ function HomeContent() {
         }
     };
 
-    /** 轮询分析任务；单次失败（黑屏恢复等）下个周期自动重试；超 15 分钟判定超时 */
+    /** 轮询分析任务；单次失败（黑屏恢复等）下个周期自动重试；切回前台立即补查；超 15 分钟判定超时 */
     const pollAnalyzeJob = (jobId: string, startTime: number) => {
         analyzeJobActiveRef.current = true;
-        const timer = setInterval(async () => {
+        const stop = () => {
+            clearInterval(timer);
+            document.removeEventListener('visibilitychange', onVisible);
+            analyzeJobActiveRef.current = false;
+        };
+        const check = async () => {
             try {
                 // 看门狗：任务超过 15 分钟未结束（AI 卡死/连接静默挂起），判定超时
                 if (Date.now() - startTime > 15 * 60 * 1000) {
-                    clearInterval(timer);
-                    analyzeJobActiveRef.current = false;
+                    stop();
                     sessionStorage.removeItem('analyzeJobId');
                     apiClient.post(`/api/analyze/jobs/${jobId}/consume`, {}).catch(() => { });
                     setAnalysisStep('idle');
@@ -246,14 +250,12 @@ function HomeContent() {
                 }
                 const job = await apiClient.get<any>(`/api/analyze/jobs/${jobId}`);
                 if (job.status === 'done' && job.questions) {
-                    clearInterval(timer);
-                    analyzeJobActiveRef.current = false;
+                    stop();
                     sessionStorage.removeItem('analyzeJobId');
                     apiClient.post(`/api/analyze/jobs/${jobId}/consume`, {}).catch(() => { });
                     handleAnalyzeResult(job.questions, startTime);
                 } else if (job.status === 'failed') {
-                    clearInterval(timer);
-                    analyzeJobActiveRef.current = false;
+                    stop();
                     sessionStorage.removeItem('analyzeJobId');
                     apiClient.post(`/api/analyze/jobs/${jobId}/consume`, {}).catch(() => { });
                     setAnalysisStep('idle');
@@ -262,7 +264,13 @@ function HomeContent() {
             } catch (e) {
                 console.warn('[HomeAnalyze] poll failed, retrying', e);
             }
-        }, 3000);
+        };
+        // 后台时浏览器会冻结/节流 interval，切回前台立刻补查一次
+        const onVisible = () => {
+            if (document.visibilityState === 'visible') check();
+        };
+        document.addEventListener('visibilitychange', onVisible);
+        const timer = setInterval(check, 3000);
     };
 
     /** 分析结果分流：多题 → 批量确认页；单题 → 单题校对页 */
