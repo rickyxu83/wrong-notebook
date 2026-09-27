@@ -7,7 +7,7 @@ import { InlineMath } from "@/components/inline-math";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Search, Filter, CheckCircle, Clock, ChevronDown, Printer, ListChecks, Trash2, X, CalendarCheck } from "lucide-react";
+import { Search, Filter, CheckCircle, Clock, ChevronDown, Printer, ListChecks, Trash2, X, CalendarCheck, FileText, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { format } from "date-fns";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -59,6 +59,8 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
     const [isSelectMode, setIsSelectMode] = useState(false);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [isDeleting, setIsDeleting] = useState(false);
+    // 批量出卷（举一反三试卷）
+    const [isCreatingPaper, setIsCreatingPaper] = useState(false);
     // 今日待复习（简化艾宾浩斯，issue #88）
     const [dueOnly, setDueOnly] = useState(false);
     const [dueCount, setDueCount] = useState(0);
@@ -132,6 +134,38 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
             }
             return newSet;
         });
+    };
+
+    /** 创建举一反三试卷：selected=多选选中 / filtered=当前筛选条件全部，难度由下拉菜单传入 */
+    const createPaper = async (scope: "selected" | "filtered", difficulty: string) => {
+        if (isCreatingPaper) return;
+        setIsCreatingPaper(true);
+        try {
+            const payload = scope === "selected"
+                ? { errorItemIds: Array.from(selectedIds), difficulty, language }
+                : {
+                    difficulty,
+                    language,
+                    filter: {
+                        subjectId: subjectId ?? null,
+                        query: search || null,
+                        mastery: masteryFilter === "all" ? null : masteryFilter === "mastered" ? "1" : "0",
+                        timeRange: timeFilter,
+                        chapter: chapterFilter || null,
+                        tag: selectedTag,
+                        gradeSemester: gradeFilter || null,
+                        paperLevel: paperLevelFilter,
+                        dueOnly,
+                    },
+                };
+            const { paperId } = await apiClient.post<{ paperId: string }>("/api/practice/papers", payload);
+            router.push(`/practice/paper/${paperId}`);
+        } catch (error) {
+            console.error(error);
+            alert(t.practicePaper?.createFailed || "创建试卷失败，请重试");
+        } finally {
+            setIsCreatingPaper(false);
+        }
     };
 
     // 多选模式相关函数
@@ -298,6 +332,23 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
                     <Printer className="mr-2 h-4 w-4" />
                     {t.notebook?.exportPrint || "导出打印"}
                 </Button>
+                {/* 举一反三试卷：按当前筛选条件批量出题 */}
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="outline" disabled={isCreatingPaper}>
+                            {isCreatingPaper ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
+                            {t.practicePaper?.createPaper || "生成试卷"}
+                        </Button>
+                        </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                        <DropdownMenuLabel>{t.practice?.difficulty?.label || "难度"}</DropdownMenuLabel>
+                        {(["easy", "medium", "hard", "harder"] as const).map((d) => (
+                            <DropdownMenuItem key={d} onClick={() => createPaper("filtered", d)}>
+                                {t.practice?.difficulty?.[d] || d}
+                            </DropdownMenuItem>
+                        ))}
+                    </DropdownMenuContent>
+                </DropdownMenu>
                 <Button
                     variant={isSelectMode ? "secondary" : "outline"}
                     className="eink-hide"
@@ -492,6 +543,23 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
                                 <X className="mr-2 h-4 w-4" />
                                 {t.notebook?.cancelSelect || "取消"}
                             </Button>
+                            {/* 选中出卷 */}
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button variant="outline" disabled={selectedIds.size === 0 || isCreatingPaper}>
+                                        {isCreatingPaper ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
+                                        {t.practicePaper?.createSelected || "选中出卷"}
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                    <DropdownMenuLabel>{t.practice?.difficulty?.label || "难度"}</DropdownMenuLabel>
+                                    {(["easy", "medium", "hard", "harder"] as const).map((d) => (
+                                        <DropdownMenuItem key={d} onClick={() => createPaper("selected", d)}>
+                                            {t.practice?.difficulty?.[d] || d}
+                                        </DropdownMenuItem>
+                                    ))}
+                                </DropdownMenuContent>
+                            </DropdownMenu>
                             <Button
                                 variant="destructive"
                                 onClick={handleBatchDelete}

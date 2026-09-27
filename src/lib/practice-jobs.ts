@@ -34,8 +34,7 @@ export async function createPracticeJob(params: {
     return job;
 }
 
-export async function runPracticeJob(jobId: string): Promise<void> {
-    const job = await prisma.practiceJob.findUnique({ where: { id: jobId } });
+export async function runPracticeJob(jobId: string): Promise<void> {    const job = await prisma.practiceJob.findUnique({ where: { id: jobId } });
     if (!job || job.status === "done") return;
 
     await prisma.practiceJob.update({
@@ -90,4 +89,75 @@ export async function runPracticeJob(jobId: string): Promise<void> {
             data: { status: "failed", error: message, completedAt: new Date() },
         }).catch(() => { /* ignore secondary failure */ });
     }
+}
+
+/**
+ * 创建批量出卷任务：一道错题出一道变式题，N 道错题组成一张试卷。
+ * 后台串行执行（避免并发打爆 AI API），全部结束后更新试卷状态。
+ */
+export async function createPracticePaper(params: {
+    errorItemIds: string[];
+    userId: string;
+    difficulty?: string;
+    language?: string;
+}) {
+    const difficulty = params.difficulty || "medium";
+    const language = params.language || "zh";
+
+    const paper = await prisma.practicePaper.create({
+        data: {
+            userId: params.userId,
+            difficulty,
+            language,
+            status: "running",
+        },
+    });
+
+    await prisma.practiceJob.createMany({
+        data: params.errorItemIds.map((errorItemId, i) => ({
+            errorItemId,
+            userId: params.userId,
+            paperId: paper.id,
+            orderIndex: i,
+            difficulty,
+            language,
+            status: "pending",
+        })),
+    });
+
+    void runPracticePaper(paper.id).catch((err) => {
+        logger.error({ err, paperId: paper.id }, 'Unhandled practice paper error');
+    });
+
+    return paper;
+}
+
+/** 串行执行试卷的全部出题任务，结束后汇总状态（done / partial / failed） */
+export async function runPracticePaper(paperId: string): Promise<void> {
+    const jobs = await prisma.practiceJob.findMany({
+        where: { paperId },
+        orderBy: { orderIndex: "asc" },
+        select: { id: true },
+    });
+
+    for (const job of jobs) {
+        // runPracticeJob 内部自带 try/catch，单题失败不中断整卷
+        await runPracticeJob(job.id);
+    }
+
+    const grouped = await prisma.practiceJob.groupBy({
+        by: ["status"],
+        where: { paperId },
+        _count: { _all: true },
+    });
+    const countOf = (s: string) => grouped.find((g) => g.status === s)?._count._all ?? 0;
+    const failed = countOf("failed");
+    const done = countOf("done");
+    const status = jobs.length === 0 || failed === jobs.length ? "failed" : failed > 0 ? "partial" : "done";
+
+    await prisma.practicePaper.update({
+        where: { id: paperId },
+        data: { status, completedAt: new Date() },
+    });
+    logger.info({ paperId, total: jobs.length, done, failed, status }, 'Practice paper finished');
 }

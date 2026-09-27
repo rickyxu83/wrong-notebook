@@ -29,6 +29,7 @@ model User {
   subjects   Subject[]
   practiceRecords PracticeRecord[]
   customTags KnowledgeTag[] // User's custom tags
+  practicePapers PracticePaper[]
 }
 
 // 统一知识点标签表 (支持无限层级)
@@ -136,6 +137,11 @@ model PracticeJob {
   errorItem   ErrorItem @relation(fields: [errorItemId], references: [id], onDelete: Cascade)
   userId      String
 
+  // 批量出卷：属于某张试卷时关联，单题出题为 null
+  paperId    String?
+  paper      PracticePaper? @relation(fields: [paperId], references: [id], onDelete: Cascade)
+  orderIndex Int?           // 题目在试卷中的顺序
+
   difficulty String   @default("medium")
   language   String   @default("zh")
   status     String   @default("pending") // pending, running, done, failed
@@ -147,6 +153,25 @@ model PracticeJob {
 
   @@index([errorItemId])
   @@index([userId, status])
+  @@index([paperId])
+}
+
+// 举一反三批量试卷：一张试卷 = 每道错题各出一道变式题
+model PracticePaper {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  difficulty String @default("medium")
+  language   String @default("zh")
+  status     String @default("running") // running, done, partial, failed
+
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  jobs PracticeJob[]
+
+  @@index([userId, createdAt])
 }
 
 model PracticeRecord {
