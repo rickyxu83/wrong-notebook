@@ -100,12 +100,16 @@ export async function runAnalyzeJob(jobId: string): Promise<void> {
 
         const aiService = getAIServiceForMultiAnalyze();
 
-        // 分批调用：单请求塞太多页会把 AI 拖死（实测 7 页一次调用 15 分钟超时失败）
-        // 每批 2 页：相邻跨页题在批内可合并；批间边界的跨页题靠题号去重
-        const BATCH_SIZE = 2;
+        // 滑动窗口分批：每批 2 页、步长 1 页（[1,2]→[2,3]→[3,4]…）
+        // 任意相邻两页都会同批出现一次，跨页题必有一个批能看到完整版；
+        // 批间重复识别的题靠题号去重（保留更完整版本）。
+        // 不用单请求塞全部页：实测 7 页一次调用 15 分钟超时失败。
+        const WINDOW = 2;
         const allQuestions: Array<Record<string, unknown>> = [];
-        for (let i = 0; i < images.length; i += BATCH_SIZE) {
-            const batch = images.slice(i, i + BATCH_SIZE);
+        for (let start = 0; start < images.length; start += 1) {
+            const batch = images.slice(start, start + WINDOW);
+            // 最后一批若只剩 1 页且已被上一批覆盖（作为上一批的第 2 页），跳过
+            if (batch.length === 1 && start > 0) break;
             const batchInput = batch.length > 1 ? batch : batch[0];
             const questions = await aiService.gradeExamMulti(
                 batchInput, mimeType, (job.language as 'zh' | 'en') || 'zh', userGrade, subjectChinese, userGradeSemester
@@ -113,9 +117,9 @@ export async function runAnalyzeJob(jobId: string): Promise<void> {
             // AI 返回的 page 是批内页码（1/2），换算成全局页码
             for (const q of questions) {
                 const localPage = (q as { page?: number }).page ?? 1;
-                allQuestions.push({ ...(q as object), page: i + localPage } as Record<string, unknown>);
+                allQuestions.push({ ...(q as object), page: start + localPage } as Record<string, unknown>);
             }
-            logger.info({ jobId, batch: i / BATCH_SIZE + 1, batchCount: questions.length }, 'Analyze batch done');
+            logger.info({ jobId, batchStart: start + 1, batchCount: questions.length }, 'Analyze batch done');
         }
 
         // 题号去重：跨批边界的跨页题可能被两批各识别一次，保留内容更完整的

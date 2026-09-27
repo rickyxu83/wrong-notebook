@@ -90,12 +90,12 @@ describe('analyze-jobs（试卷扫描后台任务）', () => {
         });
     });
 
-    it('多页分批执行：每批 2 页顺序调用，批内页码换算为全局页码，题号去重', async () => {
+    it('多页滑动窗口执行：每批 2 页步长 1（相邻页必同批），页码换算全局，题号去重留完整版', async () => {
         mocks.mockPrismaAnalyzeJob.findUnique.mockResolvedValue({
             id: 'job-1', userId: 'user-1', status: 'pending', language: 'zh', subjectId: null,
             pagesJson: JSON.stringify({ images: ['p1', 'p2', 'p3'], mimeType: 'image/jpeg' }),
         });
-        // 批 1（p1,p2）：题 1、题 2；批 2（p3）：题 2 残缺版（跨页重复） + 题 3
+        // 批 [p1,p2]：题 1、题 2 完整版；批 [p2,p3]：题 2 残缺版（跨页重复） + 题 3
         mocks.mockAIService.gradeExamMulti
             .mockResolvedValueOnce([
                 { questionText: '1. 第一题完整题干', answerText: 'a', analysis: 'a', subject: '数学', knowledgePoints: [], page: 1 },
@@ -103,23 +103,23 @@ describe('analyze-jobs（试卷扫描后台任务）', () => {
             ])
             .mockResolvedValueOnce([
                 { questionText: '2. 第二题', answerText: 'b', analysis: 'b', subject: '数学', knowledgePoints: [], page: 1 },
-                { questionText: '3. 第三题', answerText: 'c', analysis: 'c', subject: '数学', knowledgePoints: [], page: 1 },
+                { questionText: '3. 第三题', answerText: 'c', analysis: 'c', subject: '数学', knowledgePoints: [], page: 2 },
             ]);
 
         await runAnalyzeJob('job-1');
 
-        // 两批调用
+        // 滑动窗口：[p1,p2] 和 [p2,p3] 两批
         expect(mocks.mockAIService.gradeExamMulti).toHaveBeenCalledTimes(2);
         expect(mocks.mockAIService.gradeExamMulti).toHaveBeenNthCalledWith(1, ['p1', 'p2'], 'image/jpeg', 'zh', expect.anything(), null, expect.anything());
-        expect(mocks.mockAIService.gradeExamMulti).toHaveBeenNthCalledWith(2, 'p3', 'image/jpeg', 'zh', expect.anything(), null, expect.anything());
+        expect(mocks.mockAIService.gradeExamMulti).toHaveBeenNthCalledWith(2, ['p2', 'p3'], 'image/jpeg', 'zh', expect.anything(), null, expect.anything());
 
-        // 结果：题号 2 去重留完整版，全局页码正确
+        // 结果：题号 2 去重留完整版（page 2），题 3 页码 = 批起点 1 + 批内 2 = 全局第 3 页
         const lastCall = mocks.mockPrismaAnalyzeJob.update.mock.calls.at(-1)[0];
         const questions = JSON.parse(lastCall.data.resultJson);
         expect(questions).toHaveLength(3);
         expect(questions[1].questionText).toBe('2. 第二题完整题干含选项');
-        expect(questions[1].page).toBe(2); // 批 1 的第 2 页
-        expect(questions[2].page).toBe(3); // 批 2 的第 1 页 → 全局第 3 页
+        expect(questions[1].page).toBe(2);
+        expect(questions[2].page).toBe(3);
     });
 
     it('执行失败：状态 failed 并记录错误', async () => {
