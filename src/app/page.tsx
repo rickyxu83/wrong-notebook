@@ -31,6 +31,10 @@ function HomeContent() {
     const [parsedData, setParsedData] = useState<ParsedQuestion | null>(null);
     // 整卷拆分：AI 识别出多道题时进入批量确认页
     const [parsedQuestions, setParsedQuestions] = useState<ParsedQuestion[]>([]);
+    // 连续扫描：待解析的页面队列（多页一次调用）
+    const [pendingPages, setPendingPages] = useState<string[]>([]);
+    // 本次分析的页面图（供确认页裁切/预览用）
+    const [pageImages, setPageImages] = useState<string[]>([]);
     const [currentImage, setCurrentImage] = useState<string | null>(null);
     const { t, language } = useLanguage();
     const searchParams = useSearchParams();
@@ -113,12 +117,24 @@ function HomeContent() {
 
     const handleCropComplete = async (croppedBlob: Blob) => {
         setIsCropperOpen(false);
-        // Convert Blob to File
+        // 连续扫描：裁完先压缩进暂存队列，不立即分析，可继续添加下一页
         const file = new File([croppedBlob], "cropped-image.jpg", { type: "image/jpeg" });
-        handleAnalyze(file);
+        try {
+            const base64Image = await processImageFile(file);
+            setPendingPages((prev) => [...prev, base64Image]);
+        } catch (e) {
+            console.error(e);
+            alert(t.common?.messages?.analysisFailed || '图片处理失败');
+        }
     };
 
-    const handleAnalyze = async (file: File) => {
+    /** 开始解析暂存的所有页（单页或多页） */
+    const startAnalysis = () => {
+        if (pendingPages.length === 0 || analysisStep !== 'idle') return;
+        handleAnalyzePages(pendingPages);
+    };
+
+    const handleAnalyzePages = async (pages: string[]) => {
         const startTime = Date.now();
         frontendLogger.info('[HomeAnalyze]', 'Starting analysis flow', {
             timeoutSettings: {
@@ -128,23 +144,19 @@ function HomeContent() {
         });
 
         try {
-            frontendLogger.info('[HomeAnalyze]', 'Step 1/5: Compressing image');
-            setAnalysisStep('compressing');
-            const base64Image = await processImageFile(file);
-            setCurrentImage(base64Image);
-            frontendLogger.info('[HomeAnalyze]', 'Image compressed successfully', {
-                size: base64Image.length
-            });
-
-            frontendLogger.info('[HomeAnalyze]', 'Step 2/5: Calling API endpoint /api/analyze');
             setAnalysisStep('analyzing');
+            setCurrentImage(pages[0]);
+            setPageImages(pages);
+            frontendLogger.info('[HomeAnalyze]', 'Calling API endpoint /api/analyze', {
+                pages: pages.length
+            });
             const apiStartTime = Date.now();
             const data = await apiClient.post<AnalyzeResponse & { questions?: ParsedQuestion[] }>("/api/analyze", {
-                imageBase64: base64Image,
+                images: pages, // 多页一次调用，AI 可关联跨页题目
                 language: language,
                 subjectId: initialNotebookId || autoSelectedNotebookId || undefined,
                 grade: true // 扫描统一走批改能力分析：自动识别有无作答笔迹，有则逐题判对错（超集，未作答卷退化为普通拆分）
-            }, { timeout: aiTimeout }); // Use configured timeout
+            }, { timeout: Math.min(aiTimeout * pages.length, 600000) }); // 多页更慢，超时按页数放大（上限 10 分钟）
             const apiDuration = Date.now() - apiStartTime;
             frontendLogger.info('[HomeAnalyze]', 'API response received, validating data', {
                 apiDuration
@@ -589,7 +601,35 @@ function HomeContent() {
                         </div>
 
                         {inputMode === "image" ? (
-                            <UploadZone onImageSelect={onImageSelect} isAnalyzing={analysisStep !== 'idle'} />
+                            <>
+                                <UploadZone onImageSelect={onImageSelect} isAnalyzing={analysisStep !== 'idle'} />
+
+                                {/* 连续扫描暂存条：多页试卷逐页添加，最后一并解析 */}
+                                {pendingPages.length > 0 && (
+                                <div className="mt-4 p-3 border rounded-lg bg-muted/40 space-y-3">
+                                    <div className="flex items-center gap-3 flex-wrap">
+                                        {pendingPages.map((pg, i) => (
+                                            <div key={i} className="relative">
+                                                <img src={pg} alt={`第${i + 1}页`} className="h-20 rounded border" />
+                                                <button
+                                                    type="button"
+                                                    className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-destructive text-destructive-foreground text-xs leading-none"
+                                                    onClick={() => setPendingPages((prev) => prev.filter((_, idx) => idx !== i))}
+                                                >
+                                                    ×
+                                                </button>
+                                            </div>
+                                        ))}
+                                        <span className="text-xs text-muted-foreground">
+                                            {(t.app?.pagesStaged || "已添加 {count} 页，可继续拍照添加").replace("{count}", String(pendingPages.length))}
+                                        </span>
+                                    </div>
+                                    <Button onClick={startAnalysis} disabled={analysisStep !== 'idle'} className="w-full">
+                                        {(t.app?.startAnalysis || "开始解析（{count} 页）").replace("{count}", String(pendingPages.length))}
+                                    </Button>
+                                </div>
+                                )}
+                            </>
                         ) : inputMode === "text" ? (
                             <TextInputZone
                                 onSubmit={handleTextSubmit}
@@ -638,17 +678,21 @@ function HomeContent() {
                 {step === "multi-review" && parsedQuestions.length > 0 && (
                     <MultiQuestionReview
                         questions={parsedQuestions}
-                        imagePreview={currentImage}
+                        pageImages={pageImages.length > 0 ? pageImages : (currentImage ? [currentImage] : [])}
                         defaultSubjectId={initialNotebookId || autoSelectedNotebookId || undefined}
                         onCancel={() => {
                             setStep("upload");
                             setParsedQuestions([]);
                             setCurrentImage(null);
+                            setPageImages([]);
+                            setPendingPages([]);
                         }}
                         onSaved={(count, subjectId) => {
                             setStep("upload");
                             setParsedQuestions([]);
                             setCurrentImage(null);
+                            setPageImages([]);
+                            setPendingPages([]);
                             alert((t.multiReview?.saved || "已保存 {count} 道错题！").replace("{count}", String(count)));
                             if (subjectId) {
                                 router.push(`/notebooks/${subjectId}`);

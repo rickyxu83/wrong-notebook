@@ -22,6 +22,8 @@ export const ParsedQuestionSchema = z.object({
     bbox: z.array(z.number()).length(4).optional(),
     // 批改模式：学生作答是否正确（true/false/unknown→null）
     isCorrect: z.boolean().nullable().optional(),
+    // 多页输入时题目所在页码（从 1 开始）
+    page: z.number().int().min(1).optional(),
 });
 
 /**

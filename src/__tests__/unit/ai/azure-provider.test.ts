@@ -386,6 +386,28 @@ describe('Azure OpenAI Provider 响应解析', () => {
             expect(results[0].questionText).toContain('最小值');
         });
 
+        it('多页模式应解析 page 页码', () => {
+            const mockResponse = `
+<question>
+<question_text>1. 第一页的题</question_text>
+<answer_text>答案1</answer_text>
+<analysis>解析1</analysis>
+<page>1</page>
+</question>
+<question>
+<question_text>2. 第二页的题</question_text>
+<answer_text>答案2</answer_text>
+<analysis>解析2</analysis>
+<page>2</page>
+</question>
+            `.trim();
+
+            const results = asPrivateProvider(provider).parseResponseMulti(mockResponse);
+
+            expect(results[0].page).toBe(1);
+            expect(results[1].page).toBe(2);
+        });
+
         it('批改模式应解析 is_correct 判定', () => {
             const mockResponse = `
 <question>

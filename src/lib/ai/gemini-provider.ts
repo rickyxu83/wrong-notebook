@@ -142,6 +142,11 @@ export class GeminiProvider implements AIService {
         const isCorrectRaw = this.extractTag(text, "is_correct")?.toLowerCase().trim();
         const isCorrect = isCorrectRaw === 'true' ? true : isCorrectRaw === 'false' ? false : null;
 
+        // 多页输入时的页码（从 1 开始）
+        const pageRaw = this.extractTag(text, "page");
+        const pageNum = pageRaw ? parseInt(pageRaw.trim(), 10) : NaN;
+        const page = Number.isInteger(pageNum) && pageNum >= 1 ? pageNum : undefined;
+
         // Construct Result
         const result: ParsedQuestion = {
             questionText,
@@ -155,6 +160,7 @@ export class GeminiProvider implements AIService {
             requiresImage,
             ...(bbox ? { bbox } : {}),
             ...(isCorrect !== null ? { isCorrect } : {}),
+            ...(page ? { page } : {}),
         };
 
         // Final Schema Validation
@@ -202,7 +208,8 @@ export class GeminiProvider implements AIService {
         return this.analyzeImageInternal(imageBase64, mimeType, language, grade, subject, gradeSemester, 'grade') as Promise<ParsedQuestion[]>;
     }
 
-    private async analyzeImageInternal(imageBase64: string, mimeType: string = "image/jpeg", language: 'zh' | 'en' = 'zh', grade?: 7 | 8 | 9 | 10 | 11 | 12 | null, subject?: string | null, gradeSemester?: string | null, mode: 'single' | 'multi' | 'grade' = 'single'): Promise<ParsedQuestion | ParsedQuestion[]> {
+    private async analyzeImageInternal(imageBase64: string | string[], mimeType: string = "image/jpeg", language: 'zh' | 'en' = 'zh', grade?: 7 | 8 | 9 | 10 | 11 | 12 | null, subject?: string | null, gradeSemester?: string | null, mode: 'single' | 'multi' | 'grade' = 'single'): Promise<ParsedQuestion | ParsedQuestion[]> {
+        const imageList = Array.isArray(imageBase64) ? imageBase64 : [imageBase64];
         const config = getAppConfig();
 
         // 从数据库获取各学科标签
@@ -240,12 +247,9 @@ export class GeminiProvider implements AIService {
                     {
                         text: prompt
                     },
-                    {
-                        inlineData: {
-                            data: `[...${imageBase64.length} bytes base64 data...]`,
-                            mimeType: mimeType
-                        }
-                    }
+                    ...imageList.map((b64) => ({
+                        inlineData: { data: `[...${b64.length} bytes...]`, mimeType: mimeType }
+                    }))
                 ]
             };
 
@@ -257,12 +261,9 @@ export class GeminiProvider implements AIService {
                     {
                         text: prompt
                     },
-                    {
-                        inlineData: {
-                            data: imageBase64,
-                            mimeType: mimeType
-                        }
-                    }
+                    ...imageList.map((b64) => ({
+                        inlineData: { data: b64, mimeType: mimeType }
+                    }))
                 ]
             }));
 

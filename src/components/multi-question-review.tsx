@@ -22,7 +22,7 @@ interface EditableQuestion extends ParsedQuestion {
 
 interface MultiQuestionReviewProps {
     questions: ParsedQuestion[];
-    imagePreview: string | null;
+    pageImages: string[]; // 每页整图（与题目的 page 字段对应，单页时长度为 1）
     defaultSubjectId?: string | null;
     onSaved: (count: number, subjectId?: string) => void;
     onCancel: () => void;
@@ -32,7 +32,10 @@ interface MultiQuestionReviewProps {
  * 整卷拆分导入确认页：AI 一次识别出多道题，逐题核对/勾选后批量保存。
  * 每道题保存为一条独立错题，共用整页原图。
  */
-export function MultiQuestionReview({ questions, imagePreview, defaultSubjectId, onSaved, onCancel }: MultiQuestionReviewProps) {
+export function MultiQuestionReview({ questions, pageImages, defaultSubjectId, onSaved, onCancel }: MultiQuestionReviewProps) {
+    // 单页兼容：绝大多数逻辑只看第一页；多页时按题目的 page 字段取页图
+    const imagePreview = pageImages[0] ?? null;
+    const pageOf = (q: EditableQuestion) => pageImages[(q.page ?? 1) - 1] ?? imagePreview;
     const { t } = useLanguage();
     // 批改模式：任一题带对错判定即为批改场景，默认只勾错题；否则（未作答卷子）默认全勾
     const gradingMode = questions.some((q) => q.isCorrect !== null && q.isCorrect !== undefined);
@@ -52,7 +55,7 @@ export function MultiQuestionReview({ questions, imagePreview, defaultSubjectId,
 
     // 挂载后自动计算建议切线（AI bbox 提示 + 空白带精修）
     useEffect(() => {
-        if (!imagePreview || questions.length < 2) return;
+        if (!imagePreview || questions.length < 2 || pageImages.length > 1) return;
         const boxes = questions.map((q) => q.bbox as [number, number, number, number] | undefined);
         if (!boxes.some(Boolean)) return;
         computeQuestionBoundaries(imagePreview, boxes).then((b) => {
@@ -104,7 +107,7 @@ export function MultiQuestionReview({ questions, imagePreview, defaultSubjectId,
             }
             for (const q of toSave) {
                 // 优先级：手动重裁 > 切线自动裁 > 整页原图
-                const itemImage = customImages[items.indexOf(q)] ?? crops?.[items.indexOf(q)] ?? imagePreview ?? "";
+                const itemImage = customImages[items.indexOf(q)] ?? crops?.[items.indexOf(q)] ?? pageOf(q) ?? "";
                 await apiClient.post("/api/error-items", {
                     questionText: q.questionText,
                     answerText: q.answerText,
@@ -239,10 +242,10 @@ export function MultiQuestionReview({ questions, imagePreview, defaultSubjectId,
                                 </p>
                             )}
                             {/* 本题图片：手动重裁 > 自动裁切预览；提供手动补充按钮兜底 */}
-                            {(customImages[i] || previews?.[i] || imagePreview) && (
+                            {(customImages[i] || previews?.[i] || pageOf(q)) && (
                                 <div className="flex items-start gap-3">
                                     <img
-                                        src={customImages[i] || previews?.[i] || imagePreview || ""}
+                                        src={customImages[i] || previews?.[i] || pageOf(q) || ""}
                                         alt={`question-${i + 1}`}
                                         className="max-h-28 rounded border"
                                     />
@@ -293,9 +296,9 @@ export function MultiQuestionReview({ questions, imagePreview, defaultSubjectId,
             </div>
 
             {/* 手动裁图：在整页原图上框选本题区域 */}
-            {cropTarget !== null && imagePreview && (
+            {cropTarget !== null && pageOf(items[cropTarget]) && (
                 <ImageCropper
-                    imageSrc={imagePreview}
+                    imageSrc={pageOf(items[cropTarget])!}
                     open={cropTarget !== null}
                     onClose={() => setCropTarget(null)}
                     onCropComplete={handleManualCrop(cropTarget)}
