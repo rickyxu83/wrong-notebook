@@ -164,6 +164,12 @@ export async function recoverStuckAnalyzeJobs(): Promise<void> {
         if (stuck.length === 0) return;
         logger.warn({ count: stuck.length, ids: stuck.map((j) => j.id) }, 'Recovering stuck analyze jobs');
         for (const j of stuck) {
+            // 重生时重置创建时间：尸体任务守卫/前端看门狗都以 createdAt 计算年龄，
+            // 不重置的话复活的长任务会被误判“卡死”而中杀
+            await prisma.analyzeJob.update({
+                where: { id: j.id },
+                data: { createdAt: new Date() },
+            }).catch(() => { });
             void runAnalyzeJob(j.id).catch((err) =>
                 logger.error({ err, jobId: j.id }, 'Recovered job failed to start')
             );
