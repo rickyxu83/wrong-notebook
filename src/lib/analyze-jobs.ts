@@ -56,6 +56,17 @@ export async function createAnalyzeJob(params: {
     language?: string;
     subjectId?: string | null;
 }) {
+    // 剥掉 dataURL 前缀，统一存裸 base64（provider 会自己补前缀）
+    let mimeType = params.mimeType || "image/jpeg";
+    const images = params.images.map((img) => {
+        const m = img.match(/^data:([^;]+);base64,(.+)$/);
+        if (m) {
+            mimeType = m[1];
+            return m[2];
+        }
+        return img;
+    });
+
     const job = await prisma.analyzeJob.create({
         data: {
             userId: params.userId,
@@ -63,10 +74,7 @@ export async function createAnalyzeJob(params: {
             mode: "grade",
             language: params.language || "zh",
             subjectId: params.subjectId || null,
-            pagesJson: JSON.stringify({
-                images: params.images,
-                mimeType: params.mimeType || "image/jpeg",
-            }),
+            pagesJson: JSON.stringify({ images, mimeType }),
         },
     });
 

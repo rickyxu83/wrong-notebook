@@ -59,6 +59,19 @@ describe('analyze-jobs（试卷扫描后台任务）', () => {
         });
     });
 
+    it('创建时应剥掉 dataURL 前缀存裸 base64', async () => {
+        await createAnalyzeJob({
+            userId: 'user-1',
+            images: ['data:image/png;base64,AAAA', 'BBBB'],
+        });
+
+        expect(mocks.mockPrismaAnalyzeJob.create).toHaveBeenCalledWith({
+            data: expect.objectContaining({
+                pagesJson: JSON.stringify({ images: ['AAAA', 'BBBB'], mimeType: 'image/png' }),
+            }),
+        });
+    });
+
     it('执行成功：调用批改分析并存储结果，状态 done', async () => {
         mocks.mockPrismaAnalyzeJob.findUnique.mockResolvedValue({
             id: 'job-1', userId: 'user-1', status: 'pending', language: 'zh', subjectId: null,

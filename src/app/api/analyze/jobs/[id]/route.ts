@@ -32,7 +32,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
             return notFound("Job not found");
         }
 
-        const { images } = JSON.parse(job.pagesJson) as { images: string[] };
+        const { images, mimeType } = JSON.parse(job.pagesJson) as { images: string[]; mimeType?: string };
         return NextResponse.json({
             id: job.id,
             status: job.status,
@@ -43,7 +43,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
             completedAt: job.completedAt,
             consumedAt: job.consumedAt,
             questions: job.resultJson ? JSON.parse(job.resultJson) : null,
-            ...(includePages ? { pages: images } : {}),
+            // 库存裸 base64，给前端时重新包成 dataURL
+            ...(includePages ? { pages: images.map((b) => `data:${mimeType || 'image/jpeg'};base64,${b}`) } : {}),
         });
     } catch (error) {
         logger.error({ error }, 'Error fetching analyze job');
