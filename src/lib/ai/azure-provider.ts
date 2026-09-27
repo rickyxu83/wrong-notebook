@@ -243,7 +243,8 @@ export class AzureOpenAIProvider implements AIService {
                         ],
                     },
                 ],
-                max_tokens: 8192,
+                // 多题模式输出更长，且推理模型会消耗 max_tokens 思考，给足余量
+                max_tokens: multi ? 16384 : 8192,
             });
 
             logger.box('📦 Full API Response', JSON.stringify(response, null, 2));
@@ -439,13 +440,20 @@ Knowledge Points: ${knowledgePoints.join(", ")}
                     { role: "system", content: prompt },
                     { role: "user", content: "请分析上述题目并生成 GeoGebra 演示命令。" }
                 ],
-                max_tokens: 4096,
+                max_tokens: 16384,
             });
 
-            const text = response.choices[0]?.message?.content || '';
-            logger.debug({ rawResponse: text }, 'GeoGebra AI raw response');
+            const choice = response.choices[0];
+            const text = choice?.message?.content || '';
+            logger.debug({ rawResponse: text, finishReason: choice?.finish_reason }, 'GeoGebra AI raw response');
 
-            if (!text) throw new Error("Empty response from AI");
+            // 推理型模型的 max_tokens 会被思考过程消耗，耗尽时 content 为空且 finish_reason=length
+            if (!text) {
+                if (choice?.finish_reason === 'length') {
+                    throw new Error("AI_RESPONSE_ERROR: 输出被 max_tokens 截断（模型思考过长），请重试");
+                }
+                throw new Error("Empty response from AI");
+            }
 
             // Extract JSON from response (handle possible markdown code blocks)
             let jsonStr = text.trim();
