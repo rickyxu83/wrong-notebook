@@ -32,6 +32,18 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
             return notFound("Job not found");
         }
 
+        // 尸体任务守卫：pending/running 超过 15 分钟 = 执行进程已死（容器重启等），判失败
+        if ((job.status === 'pending' || job.status === 'running') &&
+            Date.now() - job.createdAt.getTime() > 15 * 60 * 1000) {
+            await prisma.analyzeJob.update({
+                where: { id },
+                data: { status: 'failed', error: 'AI_TIMEOUT_ERROR', completedAt: new Date() },
+            });
+            job.status = 'failed';
+            job.error = 'AI_TIMEOUT_ERROR';
+            logger.warn({ jobId: id }, 'Stale analyze job marked failed');
+        }
+
         const { images, mimeType } = JSON.parse(job.pagesJson) as { images: string[]; mimeType?: string };
         return NextResponse.json({
             id: job.id,

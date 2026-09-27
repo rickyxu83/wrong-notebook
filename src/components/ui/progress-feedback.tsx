@@ -16,11 +16,14 @@ interface ProgressFeedbackProps {
     modelName?: string;
     /** 分析阶段的轮转子步骤文案（每 3.5s 轮播一条，循环） */
     rotatingMessages?: string[];
+    /** 取消按钮（后台任务场景：用户可主动放弃等待） */
+    onCancel?: () => void;
+    cancelLabel?: string;
 }
 
 import { useLanguage } from "@/contexts/LanguageContext";
 
-export function ProgressFeedback({ status, progress, message, className, modelName, rotatingMessages }: ProgressFeedbackProps) {
+export function ProgressFeedback({ status, progress, message, className, modelName, rotatingMessages, onCancel, cancelLabel }: ProgressFeedbackProps) {
     const { t } = useLanguage();
     // 确保只在客户端挂载完成后才渲染遮罩层，防止 SSR/Hydration 问题
     const [isMounted, setIsMounted] = useState(false);
@@ -98,6 +101,16 @@ export function ProgressFeedback({ status, progress, message, className, modelNa
                         {progress !== undefined ? `${Math.round(progress)}%` : (t.common.pleaseWait || 'Please wait...')}
                         {` · ${elapsedText}`}
                     </p>
+
+                    {onCancel && (
+                        <button
+                            type="button"
+                            onClick={onCancel}
+                            className="text-xs text-muted-foreground underline underline-offset-2"
+                        >
+                            {cancelLabel || '取消'}
+                        </button>
+                    )}
                 </div>
             </div>
         </div>

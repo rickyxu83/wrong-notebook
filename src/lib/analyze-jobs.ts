@@ -87,6 +87,7 @@ export async function createAnalyzeJob(params: {
 
 export async function runAnalyzeJob(jobId: string): Promise<void> {
     const job = await prisma.analyzeJob.findUnique({ where: { id: jobId } });
+    // done 不重跑；pending/running 都允许（running 可能是进程重启后的尸体任务，需要复活）
     if (!job || job.status === "done") return;
 
     await prisma.analyzeJob.update({
@@ -150,5 +151,24 @@ export async function runAnalyzeJob(jobId: string): Promise<void> {
             where: { id: jobId },
             data: { status: "failed", error: message, completedAt: new Date() },
         }).catch(() => { /* ignore secondary failure */ });
+    }
+}
+
+/** 服务启动时复活卡死的分析任务（容器重启会杀死进行中的执行，任务永远挂在 running） */
+export async function recoverStuckAnalyzeJobs(): Promise<void> {
+    try {
+        const stuck = await prisma.analyzeJob.findMany({
+            where: { status: { in: ["pending", "running"] } },
+            select: { id: true },
+        });
+        if (stuck.length === 0) return;
+        logger.warn({ count: stuck.length, ids: stuck.map((j) => j.id) }, 'Recovering stuck analyze jobs');
+        for (const j of stuck) {
+            void runAnalyzeJob(j.id).catch((err) =>
+                logger.error({ err, jobId: j.id }, 'Recovered job failed to start')
+            );
+        }
+    } catch (error) {
+        logger.error({ error }, 'Failed to recover stuck analyze jobs');
     }
 }

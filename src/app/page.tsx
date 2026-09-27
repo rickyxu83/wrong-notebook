@@ -39,6 +39,8 @@ function HomeContent() {
     const [analyzeError, setAnalyzeError] = useState<string | null>(null);
     // 后台任务轮询中标记：抑制安全超时误关遮罩
     const analyzeJobActiveRef = useRef(false);
+    // 停止轮询函数（取消按钮用）
+    const analyzeJobStopRef = useRef<(() => void) | null>(null);
     const [currentImage, setCurrentImage] = useState<string | null>(null);
     const { t, language } = useLanguage();
     const searchParams = useSearchParams();
@@ -110,7 +112,8 @@ function HomeContent() {
                 }
                 if (job.status === 'pending' || job.status === 'running') {
                     setAnalysisStep('analyzing');
-                    pollAnalyzeJob(job.id, Date.now());
+                    // 看门狗以任务创建时间为准（不是恢复时间），尸体任务不会无限转圈
+                    pollAnalyzeJob(job.id, new Date(job.createdAt).getTime());
                 } else if (job.status === 'done') {
                     sessionStorage.removeItem('analyzeJobId');
                     await apiClient.post(`/api/analyze/jobs/${job.id}/consume`, {}).catch(() => { });
@@ -229,6 +232,16 @@ function HomeContent() {
         }
     };
 
+    /** 取消后台分析任务：停止轮询、取走标记、清会话记录；页图保留在暂存条可重试 */
+    const cancelAnalyzeJob = () => {
+        analyzeJobStopRef.current?.();
+        analyzeJobActiveRef.current = false;
+        const jobId = sessionStorage.getItem('analyzeJobId');
+        sessionStorage.removeItem('analyzeJobId');
+        if (jobId) apiClient.post(`/api/analyze/jobs/${jobId}/consume`, {}).catch(() => { });
+        setAnalysisStep('idle');
+    };
+
     /** 轮询分析任务；单次失败（黑屏恢复等）下个周期自动重试；切回前台立即补查；超 15 分钟判定超时 */
     const pollAnalyzeJob = (jobId: string, startTime: number) => {
         analyzeJobActiveRef.current = true;
@@ -236,6 +249,7 @@ function HomeContent() {
             clearInterval(timer);
             document.removeEventListener('visibilitychange', onVisible);
             analyzeJobActiveRef.current = false;
+            analyzeJobStopRef.current = null;
         };
         const check = async () => {
             try {
@@ -271,6 +285,7 @@ function HomeContent() {
         };
         document.addEventListener('visibilitychange', onVisible);
         const timer = setInterval(check, 3000);
+        analyzeJobStopRef.current = stop;
     };
 
     /** 分析结果分流：多题 → 批量确认页；单题 → 单题校对页 */
@@ -510,6 +525,8 @@ function HomeContent() {
                 message={getProgressMessage()}
                 modelName={analysisStep === 'analyzing' && inputMode === 'image' ? getScanModelName() : undefined}
                 rotatingMessages={analysisStep === 'analyzing' && inputMode === 'image' ? (t.common.progress?.analyzingSteps as string[] | undefined) : undefined}
+                onCancel={analysisStep === 'analyzing' ? cancelAnalyzeJob : undefined}
+                cancelLabel={t.common?.cancel || '取消'}
             />
 
             <div className="container mx-auto p-4 space-y-8 pb-20">
