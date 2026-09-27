@@ -279,6 +279,14 @@ export const translations = {
                 Unknown: "Unknown",
             },
         },
+        practicePrint: {
+            title: "Practice Question",
+            withAnswer: "Include answer & analysis",
+            print: "Print / Save PDF",
+            answerArea: "Answer area:",
+            notReady: "Question is not ready yet",
+            loadFailed: "Failed to load",
+        },
         tags: {
             title: "Tag Management",
             subtitle: "View and manage knowledge point tags",
@@ -941,6 +949,14 @@ export const translations = {
                 harder: "挑战",
                 Unknown: "未知",
             },
+        },
+        practicePrint: {
+            title: "举一反三练习",
+            withAnswer: "附答案与解析",
+            print: "打印 / 存 PDF",
+            answerArea: "作答区：",
+            notReady: "题目尚未出好",
+            loadFailed: "加载失败",
         },
         tags: {
             title: "标签管理",

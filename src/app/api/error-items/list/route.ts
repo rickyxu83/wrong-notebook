@@ -181,16 +181,17 @@ export async function GET(req: Request) {
             updatedAt: true,
             subject: true,
             tags: true,
-        } as const;
-        const errorItems = await prisma.errorItem.findMany({
+        };
+        const queryArgs: Prisma.ErrorItemFindManyArgs = {
             where: whereClause,
             orderBy: { createdAt: "desc" },
+            skip: (page - 1) * pageSize,
+            take: pageSize,
             ...(includeImage
                 ? { include: { subject: true, tags: true } }
                 : { select: baseSelect }),
-            skip: (page - 1) * pageSize,
-            take: pageSize,
-        });
+        };
+        const errorItems = await prisma.errorItem.findMany(queryArgs);
 
         const totalPages = Math.ceil(total / pageSize);
 

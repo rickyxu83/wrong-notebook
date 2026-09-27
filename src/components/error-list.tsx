@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Search, Filter, CheckCircle, Clock, ChevronDown, Printer, ListChecks, Trash2, X } from "lucide-react";
+import { Search, Filter, CheckCircle, Clock, ChevronDown, Printer, ListChecks, Trash2, X, CalendarCheck } from "lucide-react";
 import Link from "next/link";
 import { format } from "date-fns";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -58,8 +58,18 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
     const [isSelectMode, setIsSelectMode] = useState(false);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [isDeleting, setIsDeleting] = useState(false);
+    // 今日待复习（简化艾宾浩斯，issue #88）
+    const [dueOnly, setDueOnly] = useState(false);
+    const [dueCount, setDueCount] = useState(0);
     const { t, language } = useLanguage();
     const router = useRouter();
+
+    // 挂载时拉一次今日待复习数量（会触发老数据的排期懒补齐）
+    useEffect(() => {
+        apiClient.get<{ count: number }>("/api/review/due")
+            .then(d => setDueCount(d.count))
+            .catch(() => { });
+    }, []);
 
     const handleExportPrint = () => {
         const params = new URLSearchParams();
@@ -193,7 +203,7 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
 
         // 正常请求数据
         fetchItems();
-    }, [page, search, masteryFilter, timeFilter, selectedTag, subjectId, gradeFilter, chapterFilter, paperLevelFilter]);
+    }, [page, search, masteryFilter, timeFilter, selectedTag, subjectId, gradeFilter, chapterFilter, paperLevelFilter, dueOnly]);
 
     const fetchItems = async () => {
         setLoading(true);
@@ -241,6 +251,14 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
                         onChange={(e) => setSearch(e.target.value)}
                     />
                 </div>
+                <Button
+                    variant={dueOnly ? "default" : "outline"}
+                    onClick={() => setDueOnly(!dueOnly)}
+                    className={!dueOnly && dueCount > 0 ? "border-orange-400 text-orange-600 hover:text-orange-700" : ""}
+                >
+                    <CalendarCheck className="mr-2 h-4 w-4" />
+                    {t.filter?.dueToday || "今日待复习"}{dueCount > 0 ? ` (${dueCount})` : ""}
+                </Button>
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <Button variant="outline">
