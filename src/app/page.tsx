@@ -86,46 +86,44 @@ function HomeContent() {
             .catch(err => console.error("Failed to fetch config:", err));
     }, []);
 
-    // 页面恢复：重新打开时如果有在跑/刚完成/刚失败的分析任务，恢复现场（黑屏、误刷新不丢进度）
+    // 页面恢复：只恢复本浏览器发起的任务（sessionStorage 记录 jobId）。
+    // 黑屏/误刷新不丢进度；不会捞到别的设备或旧会话的任务（共享账号场景关键）。
     useEffect(() => {
-        apiClient.get<{ job: any }>("/api/analyze/jobs?latest=1")
-            .then(async ({ job }) => {
-                if (!job || job.consumedAt) return;
-                // 30 分钟外的旧任务不管
-                if (Date.now() - new Date(job.createdAt).getTime() > 30 * 60 * 1000) return;
-
+        const jobId = sessionStorage.getItem('analyzeJobId');
+        if (!jobId) return;
+        apiClient.get<any>(`/api/analyze/jobs/${jobId}?includePages=1`)
+            .then(async (job) => {
+                if (job.consumedAt) {
+                    sessionStorage.removeItem('analyzeJobId');
+                    return;
+                }
+                if (Date.now() - new Date(job.createdAt).getTime() > 30 * 60 * 1000) {
+                    sessionStorage.removeItem('analyzeJobId');
+                    return;
+                }
+                if (job.pages?.length) {
+                    setPendingPages(job.pages);
+                    setPageImages(job.pages);
+                    setCurrentImage(job.pages[0]);
+                }
                 if (job.status === 'pending' || job.status === 'running') {
-                    const full = await apiClient.get<any>(`/api/analyze/jobs/${job.id}?includePages=1`);
-                    if (full.pages?.length) {
-                        setPendingPages(full.pages);
-                        setPageImages(full.pages);
-                        setCurrentImage(full.pages[0]);
-                    }
                     setAnalysisStep('analyzing');
                     pollAnalyzeJob(job.id, Date.now());
                 } else if (job.status === 'done') {
-                    const full = await apiClient.get<any>(`/api/analyze/jobs/${job.id}?includePages=1`);
-                    apiClient.post(`/api/analyze/jobs/${job.id}/consume`, {}).catch(() => { });
-                    if (full.pages?.length) {
-                        setPendingPages(full.pages);
-                        setPageImages(full.pages);
-                        setCurrentImage(full.pages[0]);
-                    }
-                    if (full.questions?.length) {
-                        handleAnalyzeResult(full.questions, Date.now());
+                    sessionStorage.removeItem('analyzeJobId');
+                    await apiClient.post(`/api/analyze/jobs/${job.id}/consume`, {}).catch(() => { });
+                    if (job.questions?.length) {
+                        handleAnalyzeResult(job.questions, Date.now());
                     }
                 } else if (job.status === 'failed') {
-                    const full = await apiClient.get<any>(`/api/analyze/jobs/${job.id}?includePages=1`);
-                    apiClient.post(`/api/analyze/jobs/${job.id}/consume`, {}).catch(() => { });
-                    if (full.pages?.length) {
-                        setPendingPages(full.pages);
-                        setPageImages(full.pages);
-                        setCurrentImage(full.pages[0]);
-                    }
+                    sessionStorage.removeItem('analyzeJobId');
+                    await apiClient.post(`/api/analyze/jobs/${job.id}/consume`, {}).catch(() => { });
                     setAnalyzeError(mapAnalyzeError(job.error || ''));
                 }
             })
-            .catch(() => { /* 无任务或网络问题，忽略 */ });
+            .catch(() => {
+                sessionStorage.removeItem('analyzeJobId');
+            });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -218,6 +216,7 @@ function HomeContent() {
                 subjectId: initialNotebookId || autoSelectedNotebookId || undefined,
             });
             frontendLogger.info('[HomeAnalyze]', 'Analyze job created', { jobId, pages: pages.length });
+            sessionStorage.setItem('analyzeJobId', jobId); // 供黑屏/刷新后恢复，且只恢复本会话的任务
             pollAnalyzeJob(jobId, startTime);
         } catch (error: any) {
             frontendLogger.error('[HomeError]', 'Failed to create analyze job', { error: error?.message });
@@ -233,10 +232,12 @@ function HomeContent() {
                 const job = await apiClient.get<any>(`/api/analyze/jobs/${jobId}`);
                 if (job.status === 'done' && job.questions) {
                     clearInterval(timer);
+                    sessionStorage.removeItem('analyzeJobId');
                     apiClient.post(`/api/analyze/jobs/${jobId}/consume`, {}).catch(() => { });
                     handleAnalyzeResult(job.questions, startTime);
                 } else if (job.status === 'failed') {
                     clearInterval(timer);
+                    sessionStorage.removeItem('analyzeJobId');
                     apiClient.post(`/api/analyze/jobs/${jobId}/consume`, {}).catch(() => { });
                     setAnalysisStep('idle');
                     setAnalyzeError(mapAnalyzeError(job.error || ''));
