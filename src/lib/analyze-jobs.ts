@@ -99,10 +99,36 @@ export async function runAnalyzeJob(jobId: string): Promise<void> {
         const { userGrade, userGradeSemester, subjectChinese } = await resolveAnalyzeContext(job.userId, job.subjectId);
 
         const aiService = getAIServiceForMultiAnalyze();
-        const imageInput = images.length > 1 ? images : images[0];
-        const questions = await aiService.gradeExamMulti(
-            imageInput, mimeType, (job.language as 'zh' | 'en') || 'zh', userGrade, subjectChinese, userGradeSemester
-        );
+
+        // 分批调用：单请求塞太多页会把 AI 拖死（实测 7 页一次调用 15 分钟超时失败）
+        // 每批 2 页：相邻跨页题在批内可合并；批间边界的跨页题靠题号去重
+        const BATCH_SIZE = 2;
+        const allQuestions: Array<Record<string, unknown>> = [];
+        for (let i = 0; i < images.length; i += BATCH_SIZE) {
+            const batch = images.slice(i, i + BATCH_SIZE);
+            const batchInput = batch.length > 1 ? batch : batch[0];
+            const questions = await aiService.gradeExamMulti(
+                batchInput, mimeType, (job.language as 'zh' | 'en') || 'zh', userGrade, subjectChinese, userGradeSemester
+            );
+            // AI 返回的 page 是批内页码（1/2），换算成全局页码
+            for (const q of questions) {
+                const localPage = (q as { page?: number }).page ?? 1;
+                allQuestions.push({ ...(q as object), page: i + localPage } as Record<string, unknown>);
+            }
+            logger.info({ jobId, batch: i / BATCH_SIZE + 1, batchCount: questions.length }, 'Analyze batch done');
+        }
+
+        // 题号去重：跨批边界的跨页题可能被两批各识别一次，保留内容更完整的
+        const seen = new Map<string, Record<string, unknown>>();
+        for (const q of allQuestions) {
+            const m = ((q.questionText as string) || '').match(/^\s*(\d+)\s*[.、．]/);
+            const key = m ? m[1] : `__no_num_${allQuestions.indexOf(q)}`;
+            const existing = seen.get(key);
+            if (!existing || ((q.questionText as string) || '').length > ((existing.questionText as string) || '').length) {
+                seen.set(key, q);
+            }
+        }
+        const questions = Array.from(seen.values());
 
         await prisma.analyzeJob.update({
             where: { id: jobId },

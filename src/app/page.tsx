@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, Suspense, useEffect } from "react";
+import { useState, Suspense, useEffect, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { UploadZone } from "@/components/upload-zone";
@@ -37,6 +37,8 @@ function HomeContent() {
     const [pageImages, setPageImages] = useState<string[]>([]);
     // 分析失败的内联错误（不用 alert，墨水屏上弹窗体验差）
     const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+    // 后台任务轮询中标记：抑制安全超时误关遮罩
+    const analyzeJobActiveRef = useRef(false);
     const [currentImage, setCurrentImage] = useState<string | null>(null);
     const { t, language } = useLanguage();
     const searchParams = useSearchParams();
@@ -141,7 +143,9 @@ function HomeContent() {
             }, 500);
 
             // Safety timeout: auto-reset after configurable time to prevent stuck overlay
+            // 后台任务轮询期间不生效（服务端还在跑，遮罩消失会造成“已完成”的错觉）
             timeout = setTimeout(() => {
+                if (analyzeJobActiveRef.current) return;
                 console.warn('[Progress] Safety timeout triggered - resetting analysisStep');
                 setAnalysisStep('idle');
             }, safetyTimeout);
@@ -225,18 +229,31 @@ function HomeContent() {
         }
     };
 
-    /** 轮询分析任务；单次失败（黑屏恢复等）下个周期自动重试 */
+    /** 轮询分析任务；单次失败（黑屏恢复等）下个周期自动重试；超 15 分钟判定超时 */
     const pollAnalyzeJob = (jobId: string, startTime: number) => {
+        analyzeJobActiveRef.current = true;
         const timer = setInterval(async () => {
             try {
+                // 看门狗：任务超过 15 分钟未结束（AI 卡死/连接静默挂起），判定超时
+                if (Date.now() - startTime > 15 * 60 * 1000) {
+                    clearInterval(timer);
+                    analyzeJobActiveRef.current = false;
+                    sessionStorage.removeItem('analyzeJobId');
+                    apiClient.post(`/api/analyze/jobs/${jobId}/consume`, {}).catch(() => { });
+                    setAnalysisStep('idle');
+                    setAnalyzeError(t.errors?.AI_TIMEOUT_ERROR || 'AI 响应超时，请重试（页数多时可分批上传）');
+                    return;
+                }
                 const job = await apiClient.get<any>(`/api/analyze/jobs/${jobId}`);
                 if (job.status === 'done' && job.questions) {
                     clearInterval(timer);
+                    analyzeJobActiveRef.current = false;
                     sessionStorage.removeItem('analyzeJobId');
                     apiClient.post(`/api/analyze/jobs/${jobId}/consume`, {}).catch(() => { });
                     handleAnalyzeResult(job.questions, startTime);
                 } else if (job.status === 'failed') {
                     clearInterval(timer);
+                    analyzeJobActiveRef.current = false;
                     sessionStorage.removeItem('analyzeJobId');
                     apiClient.post(`/api/analyze/jobs/${jobId}/consume`, {}).catch(() => { });
                     setAnalysisStep('idle');

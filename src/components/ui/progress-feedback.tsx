@@ -40,6 +40,16 @@ export function ProgressFeedback({ status, progress, message, className, modelNa
         return () => clearInterval(timer);
     }, [status, rotatingMessages]);
 
+    // 已等待时长（每秒跳动，让长时间等待可见）
+    const [elapsed, setElapsed] = useState(0);
+    useEffect(() => {
+        if (status === 'idle') return;
+        setElapsed(0);
+        const timer = setInterval(() => setElapsed((s) => s + 1), 1000);
+        return () => clearInterval(timer);
+    }, [status]);
+    const elapsedText = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`;
+
     // 只有在客户端挂载完成且 status 不为 idle 时才渲染
     if (!isMounted || status === 'idle') return null;
 
@@ -78,6 +88,7 @@ export function ProgressFeedback({ status, progress, message, className, modelNa
 
                     <p className="text-sm text-muted-foreground">
                         {progress !== undefined ? `${Math.round(progress)}%` : (t.common.pleaseWait || 'Please wait...')}
+                        {` · ${elapsedText}`}
                     </p>
                 </div>
             </div>
