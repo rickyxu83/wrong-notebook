@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { InlineMath } from "@/components/inline-math";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Link from "next/link";
 import { TrendingUp, Plus, Trash2, ChevronDown, ChevronRight, House, Loader2 } from "lucide-react";
@@ -197,7 +198,7 @@ export default function TagsPage() {
             // 叶子节点 - 显示为 Badge
             return (
                 <Badge key={node.id} variant="outline" className="cursor-default hover:bg-accent" style={{ marginLeft: isLeafContext ? 0 : paddingLeft }}>
-                    {node.name}
+                    <InlineMath content={node.name} />
                     {(() => {
                         const stat = stats.find(s => s.tag === node.name);
                         return stat ? <span className="ml-1 text-xs text-muted-foreground">({stat.count})</span> : null;
@@ -402,7 +403,7 @@ export default function TagsPage() {
                                             <div className="flex flex-wrap gap-2">
                                                 {groupedByParent[groupName].map((tag) => (
                                                     <Badge key={tag.id} variant="secondary" className="px-3 py-1.5 text-sm">
-                                                        {tag.name}
+                                                        <InlineMath content={tag.name} />
                                                         <button
                                                             onClick={() => handleRemoveCustomTag(tag.id, tag.name, key)}
                                                             className="ml-2 hover:text-destructive transition-colors"

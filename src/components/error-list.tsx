@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { InlineMath } from "@/components/inline-math";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -355,7 +356,7 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
                         {t.filter.filteringByTag || "Filtering by tag"}:
                     </span>
                     <Badge variant="secondary" className="cursor-pointer" onClick={() => setSelectedTag(null)}>
-                        {selectedTag}
+                        <InlineMath content={selectedTag} />
                         <span className="ml-1 text-xs">×</span>
                     </Badge>
                 </div>
@@ -439,7 +440,7 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
                                                         handleTagClick(tag);
                                                     }}
                                                 >
-                                                    {tag}
+                                                    <InlineMath content={tag} />
                                                 </Badge>
                                             ))}
                                             {tags.length > 3 && (
