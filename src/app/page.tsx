@@ -13,6 +13,9 @@ import { AnalyzeResponse, Notebook, AppConfig } from "@/types/api";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { processImageFile } from "@/lib/image-utils";
+import { enhancePaperImage } from "@/lib/image-enhance";
+import { preloadOpenCV, rectifyPaperImage } from "@/lib/doc-detect";
+import { PaperStudio } from "@/components/paper-studio";
 import { Upload, BookOpen, Tags, LogOut, BarChart3, PenLine } from "lucide-react";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { BroadcastNotification } from "@/components/broadcast-notification";
@@ -33,6 +36,7 @@ function HomeContent() {
     const [parsedQuestions, setParsedQuestions] = useState<ParsedQuestion[]>([]);
     // 连续扫描：待解析的页面队列（多页一次调用）
     const [pendingPages, setPendingPages] = useState<string[]>([]);
+    const [studioIndex, setStudioIndex] = useState<number | null>(null); // 打开纸张工作室的页码
     // 本次分析的页面图（供确认页裁切/预览用）
     const [pageImages, setPageImages] = useState<string[]>([]);
     // 分析失败的内联错误（不用 alert，墨水屏上弹窗体验差）
@@ -165,13 +169,27 @@ function HomeContent() {
         setIsCropperOpen(true);
     };
 
+    /**
+     * 统一入队管道：压缩 → 纸张增强（亮度/增白/锐化）→ 暂存；
+     * 后台懒加载 opencv 成功后自动尝试切边矫正，找到纸张轮廓就替换该页。
+     */
+    const enhanceAndStage = async (file: File): Promise<void> => {
+        const base64Image = await processImageFile(file);
+        const enhanced = await enhancePaperImage(base64Image);
+        setPendingPages((prev) => [...prev, enhanced]);
+        preloadOpenCV();
+        rectifyPaperImage(enhanced).then((rect) => {
+            if (rect === enhanced) return; // 没找到纸张轮廓，保持增强版
+            setPendingPages((prev) => prev.map((p) => (p === enhanced ? rect : p)));
+        }).catch(() => { /* 切边失败静默回退 */ });
+    };
+
     const handleCropComplete = async (croppedBlob: Blob) => {
         setIsCropperOpen(false);
         // 连续扫描：裁完先压缩进暂存队列，不立即分析，可继续添加下一页
         const file = new File([croppedBlob], "cropped-image.jpg", { type: "image/jpeg" });
         try {
-            const base64Image = await processImageFile(file);
-            setPendingPages((prev) => [...prev, base64Image]);
+            await enhanceAndStage(file);
         } catch (e) {
             console.error(e);
             alert(t.common?.messages?.analysisFailed || '图片处理失败');
@@ -182,8 +200,7 @@ function HomeContent() {
     const onImagesSelect = async (files: File[]) => {
         for (const file of files.slice(0, 10)) {
             try {
-                const base64Image = await processImageFile(file);
-                setPendingPages((prev) => [...prev, base64Image]);
+                await enhanceAndStage(file);
             } catch (e) {
                 console.error(e);
             }
@@ -673,7 +690,13 @@ function HomeContent() {
                                     <div className="flex items-center gap-3 flex-wrap">
                                         {pendingPages.map((pg, i) => (
                                             <div key={i} className="relative">
-                                                <img src={pg} alt={`第${i + 1}页`} className="h-20 rounded border" />
+                                                <img
+                                                    src={pg}
+                                                    alt={`第${i + 1}页`}
+                                                    className="h-20 rounded border cursor-pointer hover:border-primary"
+                                                    title={t.paperStudio?.editHint || "点开可切边/选题"}
+                                                    onClick={() => setStudioIndex(i)}
+                                                />
                                                 <button
                                                     type="button"
                                                     className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-destructive text-destructive-foreground text-xs leading-none"
@@ -724,6 +747,18 @@ function HomeContent() {
                         open={isCropperOpen}
                         onClose={() => setIsCropperOpen(false)}
                         onCropComplete={handleCropComplete}
+                    />
+                )}
+
+                {studioIndex !== null && pendingPages[studioIndex] && (
+                    <PaperStudio
+                        imageSrc={pendingPages[studioIndex]}
+                        open={studioIndex !== null}
+                        onClose={() => setStudioIndex(null)}
+                        onApply={(processed) => {
+                            setPendingPages((prev) => prev.map((p, idx) => (idx === studioIndex ? processed : p)));
+                            setStudioIndex(null);
+                        }}
                     />
                 )}
 
