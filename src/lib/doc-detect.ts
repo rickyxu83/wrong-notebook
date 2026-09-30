@@ -10,37 +10,38 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */ // opencv.js 为无类型的第三方 UMD 全局对象
 
 declare global {
-    interface Window { cv?: any; }
+    interface Window {
+        cv?: any;
+        /** layout 内联 hook 写入：opencv 就绪信号（true=就绪，false=加载失败） */
+        __cvReady?: Promise<unknown>;
+        /** layout 内联 hook 写入：就绪后的 cv Module（不经过 promise 传递，避免 thenable 收养死循环） */
+        __cvModule?: any;
+    }
 }
 
-let cvReadyPromise: Promise<any> | null = null;
-
-/** 懒加载 opencv.js；加载完成 resolve cv 对象，失败 reject。 */
-export function loadOpenCV(): Promise<any> {
-    if (cvReadyPromise) return cvReadyPromise;
-    cvReadyPromise = new Promise((resolve, reject) => {
-        if (window.cv?.Mat) { resolve(window.cv); return; }
-        const script = document.createElement('script');
-        script.src = '/vendor/opencv.js';
-        script.async = true;
-        script.onload = () => {
-            const cv = window.cv;
-            if (!cv) { reject(new Error('opencv 未注册到 window.cv')); return; }
-            if (cv.Mat) { resolve(cv); return; }
-            // WASM 异步初始化
-            cv.onRuntimeInitialized = () => resolve(cv);
-            setTimeout(() => (cv.Mat ? resolve(cv) : reject(new Error('opencv 初始化超时'))), 15000);
-        };
-        script.onerror = () => reject(new Error('opencv.js 加载失败'));
-        document.head.appendChild(script);
-    });
-    cvReadyPromise.catch(() => { cvReadyPromise = null; }); // 失败允许重试
-    return cvReadyPromise;
+/**
+ * 等待 opencv 就绪，返回包装对象 { cv }（不可用返回 null）。
+ *
+ * 血泪教训（实测 Chrome 渲染进程 100% CPU 死转、页面假死）：这个 opencv.js 构建的
+ * window.cv 是 Emscripten thenable，一旦被原生 Promise 收养（resolve(cv)、async return cv、
+ * Promise.resolve(cv)）就触发内部死循环；动态注入/async/defer 加载同样挂死。
+ * 因此 opencv 由 layout 里的经典同步标签加载、就绪回调在解析期同步挂好（window.__cvReady），
+ * 这里只读全局状态并返回包装对象。
+ */
+export async function loadOpenCV(): Promise<{ cv: any } | null> {
+    if (typeof window === 'undefined') return null;
+    const ready = window.__cvReady;
+    if (!ready) return null;
+    const result = await Promise.race([
+        ready,
+        new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 25000)),
+    ]).catch(() => 'error' as const);
+    return result === true && window.__cvModule ? { cv: window.__cvModule } : null;
 }
 
-/** 预加载（上传第一张图后后台触发，用户打开编辑器时多半已就绪）。 */
+/** 预热：保持 API 兼容（opencv 随页面同步加载，这里只是提前触发一次就绪等待） */
 export function preloadOpenCV(): void {
-    if (typeof window !== 'undefined') loadOpenCV().catch(() => {});
+    if (typeof window !== 'undefined') void loadOpenCV();
 }
 
 type Quad = [number, number][]; // 4 个 [x, y]，顺序：左上、右上、右下、左下
@@ -194,8 +195,10 @@ function yieldToUI(): Promise<void> {
  */
 export async function rectifyPaperImage(dataUrl: string, quality = 0.9): Promise<string> {
     try {
-        const cv = await loadOpenCV();
-        await yieldToUI(); // opencv 初始化后先让浏览器喘口气
+        const mod = await loadOpenCV();
+        if (!mod) return dataUrl; // opencv 不可用，静默回退原图
+        const cv = mod.cv;
+        await yieldToUI(); // opencv 就绪后先让浏览器喘口气
         const img = await new Promise<HTMLImageElement>((resolve, reject) => {
             const el = new Image();
             el.onload = () => resolve(el);

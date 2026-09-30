@@ -55,6 +55,19 @@ export default function RootLayout({
             __html: `try{var p=new URLSearchParams(location.search).get('eink');if(p==='1'||p==='0'){localStorage.setItem('eink-mode',p)}if(localStorage.getItem('eink-mode')==='1'){document.documentElement.classList.add('eink')}}catch(e){}`,
           }}
         />
+        {/*
+          opencv：必须是经典同步标签（React 会提升到 head 保持顺序执行）。
+          血泪教训：这个构建的 window.cv 是 Emscripten thenable，一旦被原生 Promise 收养
+          （resolve(cv)/async return cv/dynamic import）就触发内部死循环 100% CPU 假死，
+          所以：① 绝不动态注入/async/defer；② 就绪后 res(true) 布尔值，cv 存 window.__cvModule。
+          就绪回调必须在解析期同步挂好，迟挂不触发。
+        */}
+        <script src="/vendor/opencv.js" async={false} />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `window.__cvModule=null;window.__cvReady=new Promise(function(res){var cv=window.cv;var done=function(){window.__cvModule=cv;res(true);};if(cv&&cv.Mat){done();}else if(cv){cv.onRuntimeInitialized=done;}else{res(false);}});`,
+          }}
+        />
         <Providers>
           {children}
         </Providers>
