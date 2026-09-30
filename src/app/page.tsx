@@ -5,7 +5,6 @@ import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { UploadZone } from "@/components/upload-zone";
 import { CorrectionEditor } from "@/components/correction-editor";
-import { ImageCropper } from "@/components/image-cropper";
 import { ParsedQuestion } from "@/lib/ai";
 import { UserWelcome } from "@/components/user-welcome";
 import { apiClient } from "@/lib/api-client";
@@ -58,22 +57,9 @@ function HomeContent() {
     // Input mode: "image" for photo upload, "text" for AI solve, "direct" for manual entry
     const [inputMode, setInputMode] = useState<"image" | "text" | "direct">("image");
 
-    // Cropper state
-    const [croppingImage, setCroppingImage] = useState<string | null>(null);
-    const [isCropperOpen, setIsCropperOpen] = useState(false);
-
     // Timeout Config
     const aiTimeout = config?.timeouts?.analyze || 180000;
     const safetyTimeout = aiTimeout + 10000;
-
-    // Cleanup Blob URL to prevent memory leak
-    useEffect(() => {
-        return () => {
-            if (croppingImage) {
-                URL.revokeObjectURL(croppingImage);
-            }
-        };
-    }, [croppingImage]);
 
     useEffect(() => {
         // Fetch notebooks for auto-selection
@@ -163,10 +149,15 @@ function HomeContent() {
         };
     }, [analysisStep, safetyTimeout]);
 
-    const onImageSelect = (file: File) => {
-        const imageUrl = URL.createObjectURL(file);
-        setCroppingImage(imageUrl);
-        setIsCropperOpen(true);
+    const onImageSelect = async (file: File) => {
+        // 单张也直进自动管线（切边+增强全自动），不再拦路弹矩形裁剪框；
+        // 需要细裁/选题时点暂存条缩略图进纸张工作室。
+        try {
+            await enhanceAndStage(file);
+        } catch (e) {
+            console.error(e);
+            alert(t.common?.messages?.analysisFailed || '图片处理失败');
+        }
     };
 
     /**
@@ -184,18 +175,6 @@ function HomeContent() {
             const reEnhanced = await enhancePaperImage(rect);
             setPendingPages((prev) => prev.map((p) => (p === enhanced ? reEnhanced : p)));
         }).catch(() => { /* 切边失败静默回退 */ });
-    };
-
-    const handleCropComplete = async (croppedBlob: Blob) => {
-        setIsCropperOpen(false);
-        // 连续扫描：裁完先压缩进暂存队列，不立即分析，可继续添加下一页
-        const file = new File([croppedBlob], "cropped-image.jpg", { type: "image/jpeg" });
-        try {
-            await enhanceAndStage(file);
-        } catch (e) {
-            console.error(e);
-            alert(t.common?.messages?.analysisFailed || '图片处理失败');
-        }
     };
 
     /** 多选/多拖整页：逐张压缩后直接入暂存队列（不逐张进裁剪器） */
@@ -741,15 +720,6 @@ function HomeContent() {
                             />
                         )}
                     </div>
-                )}
-
-                {croppingImage && (
-                    <ImageCropper
-                        imageSrc={croppingImage}
-                        open={isCropperOpen}
-                        onClose={() => setIsCropperOpen(false)}
-                        onCropComplete={handleCropComplete}
-                    />
                 )}
 
                 {studioIndex !== null && pendingPages[studioIndex] && (
