@@ -65,12 +65,14 @@ const PAPER_HI = [180, 90, 255, 255];
 const DETECT_MAX_DIM = 768;
 
 /**
- * 在画布像素里找纸张四边形（HSV 颜色分割法）。
- * 内部降采样到 ≤768px 检测（速度快 10-20 倍），返回的坐标已映射回原图尺寸。
- * 纸张面积占图 ≥20% 才采纳；approxPolyDP 三个 epsilon 渐进，失败回退 minAreaRect。
+ * 在画布像素里找纸张四边形。
+ * 内部降采样到 ≤768px 检测（速度快 10-20 倍，手机不卡），返回的坐标已映射回原图尺寸。
+ * 三级策略链：严格纸色 → 放宽纸色 → Otsu 亮度自适应；任一策略拿到真四边形即返回，
+ * 都拿不到才用首个策略的 minAreaRect 兜底（纠旋转但不纠透视）。
  */
 export function detectPaperQuad(cv: any, canvas: HTMLCanvasElement): Quad | null {
-    let src: any, rgb: any, hsv: any, mask: any, lo: any, hi: any, kOpen: any, kClose: any, contours: any, hierarchy: any;
+    let src: any, rgb: any, hsv: any, gray: any;
+    const masks: any[] = [];
     try {
         // 降采样工作图
         const scale = Math.min(1, DETECT_MAX_DIM / Math.max(canvas.width, canvas.height));
@@ -87,56 +89,32 @@ export function detectPaperQuad(cv: any, canvas: HTMLCanvasElement): Quad | null
 
         rgb = new cv.Mat();
         hsv = new cv.Mat();
+        gray = new cv.Mat();
         cv.cvtColor(src, rgb, cv.COLOR_RGBA2RGB);
         cv.cvtColor(rgb, hsv, cv.COLOR_RGB2HSV);
+        cv.cvtColor(rgb, gray, cv.COLOR_RGB2GRAY);
 
-        mask = new cv.Mat();
-        lo = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), PAPER_LO);
-        hi = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), PAPER_HI);
-        cv.inRange(hsv, lo, hi, mask);
-
-        kOpen = cv.Mat.ones(5, 5, cv.CV_8U);
-        kClose = cv.Mat.ones(15, 15, cv.CV_8U);
-        cv.morphologyEx(mask, mask, cv.MORPH_OPEN, kOpen);   // 去噪点
-        cv.morphologyEx(mask, mask, cv.MORPH_CLOSE, kClose); // 补洞连边
-
-        contours = new cv.MatVector();
-        hierarchy = new cv.Mat();
-        cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-
-        let best: any = null, bestArea = 0;
-        for (let i = 0; i < contours.size(); i++) {
-            const cnt = contours.get(i);
-            const area = cv.contourArea(cnt);
-            if (area > bestArea) { bestArea = area; if (best) best.delete(); best = cnt; }
-            else cnt.delete();
-        }
-        if (!best || bestArea < imgArea * 0.2) { best?.delete(); return null; }
-
-        // 渐进 epsilon 找四边形
+        const kOpen = cv.Mat.ones(5, 5, cv.CV_8U);
+        const kClose = cv.Mat.ones(15, 15, cv.CV_8U);
         let quad: Quad | null = null;
-        for (const eps of [0.02, 0.04, 0.06]) {
-            const peri = cv.arcLength(best, true);
-            const approx = new cv.Mat();
-            cv.approxPolyDP(best, approx, eps * peri, true);
-            const ok = approx.rows === 4 && cv.isContourConvex(approx);
-            if (ok) {
-                const pts: [number, number][] = [];
-                for (let j = 0; j < 4; j++) pts.push([approx.intPtr(j)[0], approx.intPtr(j)[1]]);
-                quad = orderQuad(pts);
-                approx.delete();
-                break;
+        let rectFallback: Quad | null = null;
+        try {
+            for (const makeMask of STRATEGIES) {
+                const mask = makeMask(cv, src, hsv, gray, null);
+                masks.push(mask);
+                cv.morphologyEx(mask, mask, cv.MORPH_OPEN, kOpen);   // 去噪点
+                cv.morphologyEx(mask, mask, cv.MORPH_CLOSE, kClose); // 补洞连边
+                const res = quadFromMask(cv, mask, imgArea);
+                if (res?.isQuad) { quad = res.quad; break; }
+                if (res && !rectFallback) rectFallback = res.quad;
             }
-            approx.delete();
+        } finally {
+            kOpen.delete(); kClose.delete();
+            for (const m of masks) m.delete();
         }
-        if (!quad) {
-            // 兜底：旋转矩形
-            const rect = cv.minAreaRect(best);
-            const corners = (cv.RotatedRect.points(rect) as { x: number; y: number }[])
-                .map(p => [p.x, p.y] as [number, number]);
-            quad = orderQuad(corners);
-        }
-        best.delete();
+
+        if (!quad) quad = rectFallback;
+        if (!quad) return null;
 
         // 坐标映射回原图尺寸
         if (scale < 1) quad = quad.map(([x, y]) => [x / scale, y / scale] as [number, number]);
@@ -144,10 +122,93 @@ export function detectPaperQuad(cv: any, canvas: HTMLCanvasElement): Quad | null
     } catch {
         return null;
     } finally {
-        src?.delete(); rgb?.delete(); hsv?.delete(); mask?.delete(); lo?.delete(); hi?.delete();
-        kOpen?.delete(); kClose?.delete(); contours?.delete(); hierarchy?.delete();
+        src?.delete(); rgb?.delete(); hsv?.delete(); gray?.delete();
     }
 }
+
+/**
+ * 从二值掩膜里提取纸张四边形。
+ * 凸包先行（填平手指/字迹/卷边造成的凹陷，approxPolyDP 命中率大增），
+ * 渐进 epsilon 找真四边形；失败回退 minAreaRect（isQuad=false 标记，让调用方先试别的策略）。
+ */
+function quadFromMask(cv: any, mask: any, imgArea: number): { quad: Quad; isQuad: boolean } | null {
+    const contours = new cv.MatVector();
+    const hierarchy = new cv.Mat();
+    let best: any = null;
+    let hull: any = null;
+    try {
+        cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+        let bestArea = 0;
+        for (let i = 0; i < contours.size(); i++) {
+            const cnt = contours.get(i);
+            const area = cv.contourArea(cnt);
+            if (area > bestArea) { bestArea = area; if (best) best.delete(); best = cnt; }
+            else cnt.delete();
+        }
+        if (!best || bestArea < imgArea * 0.18) return null;
+
+        hull = new cv.Mat();
+        cv.convexHull(best, hull, false, true);
+        best.delete(); best = null;
+
+        for (const eps of [0.015, 0.02, 0.03, 0.045, 0.06]) {
+            const peri = cv.arcLength(hull, true);
+            const approx = new cv.Mat();
+            cv.approxPolyDP(hull, approx, eps * peri, true);
+            const ok = approx.rows === 4 && cv.isContourConvex(approx);
+            if (ok) {
+                const pts: [number, number][] = [];
+                for (let j = 0; j < 4; j++) pts.push([approx.intPtr(j)[0], approx.intPtr(j)[1]]);
+                approx.delete();
+                return { quad: orderQuad(pts), isQuad: true };
+            }
+            approx.delete();
+        }
+        // 兜底：旋转矩形（能纠旋转但纠不了透视梯形，所以标记 isQuad=false）
+        const rect = cv.minAreaRect(hull);
+        const corners = (cv.RotatedRect.points(rect) as { x: number; y: number }[])
+            .map(p => [p.x, p.y] as [number, number]);
+        return { quad: orderQuad(corners), isQuad: false };
+    } catch {
+        return null;
+    } finally {
+        best?.delete(); hull?.delete(); contours.delete(); hierarchy.delete();
+    }
+}
+
+/** 三条分割策略：严格纸色 → 放宽纸色（暗/黄纸） → Otsu 亮度自适应 */
+type MaskStrategy = (cv: any, src: any, hsv: any, gray: any, tmp: any) => any;
+
+const STRATEGIES: MaskStrategy[] = [
+    // 1. 严格：亮且低饱和
+    (cv, src, hsv) => {
+        const mask = new cv.Mat();
+        const lo = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), PAPER_LO);
+        const hi = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), PAPER_HI);
+        cv.inRange(hsv, lo, hi, mask);
+        lo.delete(); hi.delete();
+        return mask;
+    },
+    // 2. 放宽：更暗/更黄的纸（傍晚灯光、旧卷子）
+    (cv, src, hsv) => {
+        const mask = new cv.Mat();
+        const lo = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [0, 0, 85, 0]);
+        const hi = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [180, 125, 255, 255]);
+        cv.inRange(hsv, lo, hi, mask);
+        lo.delete(); hi.delete();
+        return mask;
+    },
+    // 3. Otsu 亮度自适应：纸通常比背景亮
+    (cv, src, hsv, gray) => {
+        const mask = new cv.Mat();
+        cv.threshold(gray, mask, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
+        // 若亮区反而是少数（深色卷子/深底白纸误判），反色取多数派之外的较亮侧
+        const total = mask.rows * mask.cols;
+        const bright = cv.countNonZero(mask);
+        if (bright < total * 0.15) cv.bitwise_not(mask, mask); // 亮区太小可能是深色背景被压暗，反转试试
+        return mask;
+    },
+];
 
 /**
  * 透视矫正：把 quad 区域拉正为矩形，返回新 canvas；失败返回 null。
