@@ -6,7 +6,11 @@ import {
     computeContentSegments,
     createExclusionMask,
     estimatePaperColor,
+    fillPolygon,
+    fillRectRange,
     fillRowRange,
+    invertMask,
+    maskBoundingBox,
     hitSegment,
     maskCoverage,
     paintCircle,
@@ -116,6 +120,64 @@ describe('排除 mask', () => {
         const mask = createExclusionMask(10, 10);
         fillRowRange(mask, 10, 10, 0, 4);
         expect(maskCoverage(mask)).toBeCloseTo(0.5, 1);
+    });
+
+    it('paintCircle/paintLine 支持擦除（value=0）', () => {
+        const mask = createExclusionMask(20, 20);
+        paintCircle(mask, 20, 20, 10, 10, 5, 1);
+        expect(mask[10 * 20 + 10]).toBe(1);
+        paintCircle(mask, 20, 20, 10, 10, 5, 0);
+        expect(mask[10 * 20 + 10]).toBe(0);
+        paintLine(mask, 20, 20, 2, 2, 18, 2, 2, 1);
+        expect(mask[2 * 20 + 10]).toBe(1);
+        paintLine(mask, 20, 20, 2, 2, 18, 2, 2, 0);
+        expect(mask[2 * 20 + 10]).toBe(0);
+    });
+
+    it('fillRectRange 自动交换对角并裁剪到图内', () => {
+        const mask = createExclusionMask(10, 10);
+        fillRectRange(mask, 10, 10, 8, 8, 2, 2, 1); // 反向拖拽
+        expect(mask[2 * 10 + 2]).toBe(1);
+        expect(mask[5 * 10 + 5]).toBe(1);
+        expect(mask[1 * 10 + 1]).toBe(0);
+        fillRectRange(mask, 10, 10, -50, -50, 3, 3, 1); // 越界裁剪
+        expect(mask[0]).toBe(1);
+        fillRectRange(mask, 10, 10, 0, 0, 9, 9, 0); // 整图擦除
+        expect(maskCoverage(mask)).toBe(0);
+    });
+
+    it('fillPolygon 三角形 even-odd 填充与擦除', () => {
+        const mask = createExclusionMask(10, 10);
+        fillPolygon(mask, 10, 10, [[1, 1], [8, 1], [1, 8]], 1);
+        expect(mask[1 * 10 + 4]).toBe(1);  // 斜边上方内部
+        expect(mask[5 * 10 + 2]).toBe(1);  // 靠近斜边内部
+        expect(mask[5 * 10 + 7]).toBe(0);  // 斜边另一侧外部
+        expect(mask[9 * 10 + 9]).toBe(0);
+        // 少于 3 个点忽略
+        fillPolygon(mask, 10, 10, [[0, 0], [9, 9]], 1);
+        expect(mask[9 * 10 + 9]).toBe(0);
+        // 擦除
+        fillPolygon(mask, 10, 10, [[1, 1], [8, 1], [1, 8]], 0);
+        expect(mask[1 * 10 + 4]).toBe(0);
+    });
+
+    it('invertMask 生成反转副本且不改原 mask', () => {
+        const mask = createExclusionMask(4, 4);
+        mask[0] = 1;
+        const inv = invertMask(mask);
+        expect(inv[0]).toBe(0);
+        expect(inv[5]).toBe(1);
+        expect(mask[0]).toBe(1); // 原 mask 不变
+    });
+
+    it('maskBoundingBox 返回外扩包围盒，空 mask 返回 null', () => {
+        const mask = createExclusionMask(100, 100);
+        expect(maskBoundingBox(mask, 100, 100)).toBeNull();
+        fillRectRange(mask, 100, 100, 20, 30, 40, 50, 1);
+        const box = maskBoundingBox(mask, 100, 100, 0.02)!;
+        expect(box).toEqual({ x: 18, y: 28, width: 25, height: 25 }); // 各边外扩 2px
+        const noPad = maskBoundingBox(mask, 100, 100, 0)!;
+        expect(noPad).toEqual({ x: 20, y: 30, width: 21, height: 21 });
     });
 });
 

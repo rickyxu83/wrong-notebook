@@ -147,8 +147,8 @@ export function createExclusionMask(width: number, height: number): Uint8Array {
     return new Uint8Array(width * height);
 }
 
-/** 涂抹：以 (cx,cy) 为圆心、r 为半径画进 mask。返回是否有改动。 */
-export function paintCircle(mask: Uint8Array, width: number, height: number, cx: number, cy: number, r: number): boolean {
+/** 涂抹：以 (cx,cy) 为圆心、r 为半径写进 mask（value=1 涂 / 0 擦）。返回是否有改动。 */
+export function paintCircle(mask: Uint8Array, width: number, height: number, cx: number, cy: number, r: number, value: 0 | 1 = 1): boolean {
     const x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(width - 1, Math.ceil(cx + r));
     const y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(height - 1, Math.ceil(cy + r));
     const r2 = r * r;
@@ -158,7 +158,7 @@ export function paintCircle(mask: Uint8Array, width: number, height: number, cx:
             const dx = x - cx, dy = y - cy;
             if (dx * dx + dy * dy <= r2) {
                 const i = y * width + x;
-                if (!mask[i]) { mask[i] = 1; changed = true; }
+                if (mask[i] !== value) { mask[i] = value; changed = true; }
             }
         }
     }
@@ -166,11 +166,11 @@ export function paintCircle(mask: Uint8Array, width: number, height: number, cx:
 }
 
 /** 两个涂抹点之间插值连线，避免快速滑动断点。 */
-export function paintLine(mask: Uint8Array, width: number, height: number, x0: number, y0: number, x1: number, y1: number, r: number): void {
+export function paintLine(mask: Uint8Array, width: number, height: number, x0: number, y0: number, x1: number, y1: number, r: number, value: 0 | 1 = 1): void {
     const dist = Math.hypot(x1 - x0, y1 - y0);
     const steps = Math.max(1, Math.ceil(dist / Math.max(1, r * 0.5)));
     for (let s = 0; s <= steps; s++) {
-        paintCircle(mask, width, height, x0 + ((x1 - x0) * s) / steps, y0 + ((y1 - y0) * s) / steps, r);
+        paintCircle(mask, width, height, x0 + ((x1 - x0) * s) / steps, y0 + ((y1 - y0) * s) / steps, r, value);
     }
 }
 
@@ -184,6 +184,81 @@ export function fillRowRange(mask: Uint8Array, width: number, height: number, yT
 export function clearRowRange(mask: Uint8Array, width: number, height: number, yTop: number, yBottom: number): void {
     const t = Math.max(0, Math.floor(yTop)), b = Math.min(height - 1, Math.ceil(yBottom));
     for (let y = t; y <= b; y++) mask.fill(0, y * width, (y + 1) * width);
+}
+
+/** 矩形区域填充/清除（自动交换对角、裁剪到图内）。 */
+export function fillRectRange(
+    mask: Uint8Array, width: number, height: number,
+    x0: number, y0: number, x1: number, y1: number, value: 0 | 1 = 1,
+): void {
+    const l = Math.max(0, Math.floor(Math.min(x0, x1))), r = Math.min(width - 1, Math.ceil(Math.max(x0, x1)));
+    const t = Math.max(0, Math.floor(Math.min(y0, y1))), b = Math.min(height - 1, Math.ceil(Math.max(y0, y1)));
+    for (let y = t; y <= b; y++) mask.fill(value, y * width + l, y * width + r + 1);
+}
+
+/**
+ * 套索多边形填充/清除（纯扫描线 even-odd 算法，无 DOM 依赖，可单测）。
+ * points 为原图像素坐标；少于 3 个点或退化多边形直接忽略。
+ */
+export function fillPolygon(
+    mask: Uint8Array, width: number, height: number,
+    points: [number, number][], value: 0 | 1 = 1,
+): void {
+    if (points.length < 3) return;
+    let minY = Infinity, maxY = -Infinity;
+    for (const [, y] of points) { if (y < minY) minY = y; if (y > maxY) maxY = y; }
+    const yStart = Math.max(0, Math.floor(minY)), yEnd = Math.min(height - 1, Math.ceil(maxY));
+    const n = points.length;
+    for (let y = yStart; y <= yEnd; y++) {
+        const yc = y + 0.5; // 像素中心采样
+        const xs: number[] = [];
+        for (let i = 0; i < n; i++) {
+            const [xa, ya] = points[i];
+            const [xb, yb] = points[(i + 1) % n];
+            if ((ya <= yc && yb > yc) || (yb <= yc && ya > yc)) {
+                xs.push(xa + ((yc - ya) / (yb - ya)) * (xb - xa));
+            }
+        }
+        if (xs.length < 2) continue;
+        xs.sort((a, b) => a - b);
+        for (let k = 0; k + 1 < xs.length; k += 2) {
+            const l = Math.max(0, Math.floor(xs[k])), r = Math.min(width - 1, Math.ceil(xs[k + 1]));
+            if (r >= l) mask.fill(value, y * width + l, y * width + r + 1);
+        }
+    }
+}
+
+/** 生成反转副本（keep 模式导出：排除 = 保留区的补集）。 */
+export function invertMask(mask: Uint8Array): Uint8Array {
+    const out = new Uint8Array(mask.length);
+    for (let i = 0; i < mask.length; i++) out[i] = mask[i] ? 0 : 1;
+    return out;
+}
+
+/** mask 的包围盒（含 padRatio 比例的外扩边距），空 mask 返回 null。 */
+export function maskBoundingBox(
+    mask: Uint8Array, width: number, height: number, padRatio = 0.02,
+): { x: number; y: number; width: number; height: number } | null {
+    let minX = width, minY = height, maxX = -1, maxY = -1;
+    for (let y = 0; y < height; y++) {
+        const row = y * width;
+        for (let x = 0; x < width; x++) {
+            if (mask[row + x]) {
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+            }
+        }
+    }
+    if (maxX < 0) return null;
+    const padX = Math.round(width * padRatio), padY = Math.round(height * padRatio);
+    const x = Math.max(0, minX - padX), y = Math.max(0, minY - padY);
+    return {
+        x, y,
+        width: Math.min(width, maxX + padX + 1) - x,
+        height: Math.min(height, maxY + padY + 1) - y,
+    };
 }
 
 /** 应用 mask：被排除的像素涂成纯白（保留版面布局，AI 只看到留下的题）。 */
