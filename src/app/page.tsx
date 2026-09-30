@@ -178,9 +178,11 @@ function HomeContent() {
         const enhanced = await enhancePaperImage(base64Image);
         setPendingPages((prev) => [...prev, enhanced]);
         preloadOpenCV();
-        rectifyPaperImage(enhanced).then((rect) => {
-            if (rect === enhanced) return; // 没找到纸张轮廓，保持增强版
-            setPendingPages((prev) => prev.map((p) => (p === enhanced ? rect : p)));
+        // 切边必须在增强前做（HSV 分割依赖纸张与背景的原始对比度），切完再重新增强
+        rectifyPaperImage(base64Image).then(async (rect) => {
+            if (rect === base64Image) return; // 没找到纸张轮廓，保持增强版
+            const reEnhanced = await enhancePaperImage(rect);
+            setPendingPages((prev) => prev.map((p) => (p === enhanced ? reEnhanced : p)));
         }).catch(() => { /* 切边失败静默回退 */ });
     };
 
