@@ -60,15 +60,29 @@ function orderQuad(pts: [number, number][]): Quad {
 const PAPER_LO = [0, 0, 110, 0];
 const PAPER_HI = [180, 90, 255, 255];
 
+/** 检测用降采样上限：形态学大核在 2MP 全图上是手机主线程杀手，768px 足够定位纸张 */
+const DETECT_MAX_DIM = 768;
+
 /**
  * 在画布像素里找纸张四边形（HSV 颜色分割法）。
+ * 内部降采样到 ≤768px 检测（速度快 10-20 倍），返回的坐标已映射回原图尺寸。
  * 纸张面积占图 ≥20% 才采纳；approxPolyDP 三个 epsilon 渐进，失败回退 minAreaRect。
  */
 export function detectPaperQuad(cv: any, canvas: HTMLCanvasElement): Quad | null {
     let src: any, rgb: any, hsv: any, mask: any, lo: any, hi: any, kOpen: any, kClose: any, contours: any, hierarchy: any;
     try {
-        src = cv.imread(canvas);
-        const imgArea = canvas.width * canvas.height;
+        // 降采样工作图
+        const scale = Math.min(1, DETECT_MAX_DIM / Math.max(canvas.width, canvas.height));
+        let work = canvas;
+        if (scale < 1) {
+            work = document.createElement('canvas');
+            work.width = Math.max(1, Math.round(canvas.width * scale));
+            work.height = Math.max(1, Math.round(canvas.height * scale));
+            work.getContext('2d')?.drawImage(canvas, 0, 0, work.width, work.height);
+        }
+
+        src = cv.imread(work);
+        const imgArea = work.width * work.height;
 
         rgb = new cv.Mat();
         hsv = new cv.Mat();
@@ -80,8 +94,8 @@ export function detectPaperQuad(cv: any, canvas: HTMLCanvasElement): Quad | null
         hi = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), PAPER_HI);
         cv.inRange(hsv, lo, hi, mask);
 
-        kOpen = cv.Mat.ones(7, 7, cv.CV_8U);
-        kClose = cv.Mat.ones(25, 25, cv.CV_8U);
+        kOpen = cv.Mat.ones(5, 5, cv.CV_8U);
+        kClose = cv.Mat.ones(15, 15, cv.CV_8U);
         cv.morphologyEx(mask, mask, cv.MORPH_OPEN, kOpen);   // 去噪点
         cv.morphologyEx(mask, mask, cv.MORPH_CLOSE, kClose); // 补洞连边
 
@@ -99,6 +113,7 @@ export function detectPaperQuad(cv: any, canvas: HTMLCanvasElement): Quad | null
         if (!best || bestArea < imgArea * 0.2) { best?.delete(); return null; }
 
         // 渐进 epsilon 找四边形
+        let quad: Quad | null = null;
         for (const eps of [0.02, 0.04, 0.06]) {
             const peri = cv.arcLength(best, true);
             const approx = new cv.Mat();
@@ -107,19 +122,24 @@ export function detectPaperQuad(cv: any, canvas: HTMLCanvasElement): Quad | null
             if (ok) {
                 const pts: [number, number][] = [];
                 for (let j = 0; j < 4; j++) pts.push([approx.intPtr(j)[0], approx.intPtr(j)[1]]);
+                quad = orderQuad(pts);
                 approx.delete();
-                best.delete();
-                return orderQuad(pts);
+                break;
             }
             approx.delete();
         }
-
-        // 兜底：旋转矩形
-        const rect = cv.minAreaRect(best);
-        const corners = (cv.RotatedRect.points(rect) as { x: number; y: number }[])
-            .map(p => [p.x, p.y] as [number, number]);
+        if (!quad) {
+            // 兜底：旋转矩形
+            const rect = cv.minAreaRect(best);
+            const corners = (cv.RotatedRect.points(rect) as { x: number; y: number }[])
+                .map(p => [p.x, p.y] as [number, number]);
+            quad = orderQuad(corners);
+        }
         best.delete();
-        return orderQuad(corners);
+
+        // 坐标映射回原图尺寸
+        if (scale < 1) quad = quad.map(([x, y]) => [x / scale, y / scale] as [number, number]);
+        return quad;
     } catch {
         return null;
     } finally {
@@ -163,6 +183,11 @@ export function warpPerspective(cv: any, canvas: HTMLCanvasElement, quad: Quad):
     }
 }
 
+/** 让出主线程，避免长任务连发时页面假死 */
+function yieldToUI(): Promise<void> {
+    return new Promise((r) => setTimeout(r, 0));
+}
+
 /**
  * 一键切边矫正：输入 dataURL，成功返回矫正后的 dataURL，任何失败回退原图。
  * 注意：请在增强（增白）之前调用——分割依赖纸张与背景的原始对比度。
@@ -170,6 +195,7 @@ export function warpPerspective(cv: any, canvas: HTMLCanvasElement, quad: Quad):
 export async function rectifyPaperImage(dataUrl: string, quality = 0.9): Promise<string> {
     try {
         const cv = await loadOpenCV();
+        await yieldToUI(); // opencv 初始化后先让浏览器喘口气
         const img = await new Promise<HTMLImageElement>((resolve, reject) => {
             const el = new Image();
             el.onload = () => resolve(el);
@@ -183,8 +209,10 @@ export async function rectifyPaperImage(dataUrl: string, quality = 0.9): Promise
         if (!ctx) return dataUrl;
         ctx.drawImage(img, 0, 0);
 
+        await yieldToUI();
         const quad = detectPaperQuad(cv, canvas);
         if (!quad) return dataUrl;
+        await yieldToUI();
         const warped = warpPerspective(cv, canvas, quad);
         if (!warped) return dataUrl;
         return warped.toDataURL('image/jpeg', quality);

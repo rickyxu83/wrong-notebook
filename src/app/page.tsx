@@ -15,7 +15,7 @@ import { processImageFile } from "@/lib/image-utils";
 import { enhancePaperImage } from "@/lib/image-enhance";
 import { preloadOpenCV, rectifyPaperImage } from "@/lib/doc-detect";
 import { PaperStudio } from "@/components/paper-studio";
-import { Upload, BookOpen, Tags, LogOut, BarChart3, PenLine } from "lucide-react";
+import { Upload, BookOpen, Tags, LogOut, BarChart3, PenLine, Loader2 } from "lucide-react";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { BroadcastNotification } from "@/components/broadcast-notification";
 import { signOut } from "next-auth/react";
@@ -36,6 +36,7 @@ function HomeContent() {
     // 连续扫描：待解析的页面队列（多页一次调用）
     const [pendingPages, setPendingPages] = useState<string[]>([]);
     const [studioIndex, setStudioIndex] = useState<number | null>(null); // 打开纸张工作室的页码
+    const [rectifyingPages, setRectifyingPages] = useState<Set<string>>(new Set()); // 后台切边处理中的页
     // 本次分析的页面图（供确认页裁切/预览用）
     const [pageImages, setPageImages] = useState<string[]>([]);
     // 分析失败的内联错误（不用 alert，墨水屏上弹窗体验差）
@@ -170,11 +171,13 @@ function HomeContent() {
         setPendingPages((prev) => [...prev, enhanced]);
         preloadOpenCV();
         // 切边必须在增强前做（HSV 分割依赖纸张与背景的原始对比度），切完再重新增强
+        setRectifyingPages((prev) => new Set(prev).add(enhanced));
         rectifyPaperImage(base64Image).then(async (rect) => {
             if (rect === base64Image) return; // 没找到纸张轮廓，保持增强版
             const reEnhanced = await enhancePaperImage(rect);
             setPendingPages((prev) => prev.map((p) => (p === enhanced ? reEnhanced : p)));
-        }).catch(() => { /* 切边失败静默回退 */ });
+        }).catch(() => { /* 切边失败静默回退 */ })
+            .finally(() => setRectifyingPages((prev) => { const next = new Set(prev); next.delete(enhanced); return next; }));
     };
 
     /** 多选/多拖整页：逐张压缩后直接入暂存队列（不逐张进裁剪器） */
@@ -678,6 +681,11 @@ function HomeContent() {
                                                     title={t.paperStudio?.editHint || "点开可切边/选题"}
                                                     onClick={() => setStudioIndex(i)}
                                                 />
+                                                {rectifyingPages.has(pg) && (
+                                                    <div className="absolute inset-0 rounded bg-background/60 flex items-center justify-center pointer-events-none">
+                                                        <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                                                    </div>
+                                                )}
                                                 <button
                                                     type="button"
                                                     className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-destructive text-destructive-foreground text-xs leading-none"
