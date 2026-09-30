@@ -295,7 +295,9 @@ function HomeContent() {
             count: questions.length,
             totalDuration: Date.now() - startTime,
         });
-        setAnalysisStep('processing');
+        // 路由是同步客户端工作，没有需要等待的“处理”——直接 idle 关掉遮罩，
+        // 否则 fixed 全屏的 processing 遮罩会一直盖住结果页，直到安全定时器兜底（用户白等一两分钟）
+        setAnalysisStep('idle');
         setProgress(100);
 
         // 按第一题学科自动匹配笔记本
@@ -391,7 +393,8 @@ function HomeContent() {
                 subject: matchedNotebook?.name || undefined,
             }, { timeout: aiTimeout });
 
-            setAnalysisStep('processing');
+            // 同上：同步路由，直接关遮罩
+            setAnalysisStep('idle');
             setProgress(100);
 
             const parsed: ParsedQuestion = {
