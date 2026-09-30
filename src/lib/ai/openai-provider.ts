@@ -21,6 +21,8 @@ export class OpenAIProvider implements AIService {
     private baseURL: string;
     private apiKey: string;
     private isLongCat: boolean;
+    /** kimi coding 端点的 k3 系推理模型支持 reasoning_effort=low（阅卷是转录+批改，低档思考足够，实测快 2.3 倍） */
+    private supportsLowReasoning: boolean;
 
     constructor(config?: AIConfig) {
         const apiKey = config?.apiKey;
@@ -42,6 +44,7 @@ export class OpenAIProvider implements AIService {
         this.baseURL = baseURL || 'https://api.openai.com/v1';
         this.apiKey = apiKey;
         this.isLongCat = this.baseURL.includes('longcat.chat');
+        this.supportsLowReasoning = this.baseURL.includes('kimi.com/coding') && /k3/i.test(this.model);
 
         logger.info({
             provider: 'OpenAI',
@@ -325,6 +328,8 @@ export class OpenAIProvider implements AIService {
                     ],
                     // response_format: { type: "json_object" }, // Removing to improve compatibility with 3rd party providers
                     max_tokens: mode === 'single' ? 8192 : 16384,
+                    // 推理模型阅卷场景压思考档位：实测同一物理题 79s→35s，转录+批改质量不变
+                    ...(this.supportsLowReasoning ? { reasoning_effort: 'low' as const } : {}),
                 });
             }
 
