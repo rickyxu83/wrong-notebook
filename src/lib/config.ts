@@ -22,7 +22,8 @@ export interface AppConfig {
         instances?: OpenAIInstance[];
         activeInstanceId?: string;
         // 整卷拆分（多题识别）专用实例：坐标定位对模型能力要求高，可单独指定
-        multiAnalyzeInstanceId?: string;
+        // null 仅用于更新请求，表示清除专用实例并回退到活跃实例
+        multiAnalyzeInstanceId?: string | null;
     };
     gemini?: {
         apiKey?: string;
@@ -173,7 +174,9 @@ export function updateAppConfig(newConfig: Partial<AppConfig>) {
         openai: {
             instances: newConfig.openai?.instances ?? currentConfig.openai?.instances ?? [],
             activeInstanceId: newConfig.openai?.activeInstanceId ?? currentConfig.openai?.activeInstanceId,
-            multiAnalyzeInstanceId: newConfig.openai?.multiAnalyzeInstanceId ?? currentConfig.openai?.multiAnalyzeInstanceId,
+            multiAnalyzeInstanceId: newConfig.openai && Object.prototype.hasOwnProperty.call(newConfig.openai, 'multiAnalyzeInstanceId')
+                ? newConfig.openai.multiAnalyzeInstanceId ?? undefined
+                : currentConfig.openai?.multiAnalyzeInstanceId,
         },
         gemini: { ...currentConfig.gemini, ...newConfig.gemini },
         azure: { ...currentConfig.azure, ...newConfig.azure },

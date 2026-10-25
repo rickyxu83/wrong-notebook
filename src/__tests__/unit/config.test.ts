@@ -255,4 +255,32 @@ describe('getMultiAnalyzeOpenAIConfig（整卷拆分专用实例）', () => {
         });
         expect(result.openai?.multiAnalyzeInstanceId).toBe('a');
     });
+
+    it('updateAppConfig 应能通过 null 清除专用实例并跟随活跃实例', async () => {
+        vi.mocked(fs.existsSync).mockReturnValue(true);
+        vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+            aiProvider: 'openai',
+            openai: {
+                instances: [
+                    { id: 'ds', name: 'DeepSeek', apiKey: 'k1', baseUrl: 'https://api.deepseek.com/', model: 'deepseek-flash' },
+                    { id: 'kimi', name: 'Kimi High Speed', apiKey: 'k2', baseUrl: 'https://api.kimi.com/coding/v1', model: 'k3-256k' },
+                ],
+                activeInstanceId: 'ds',
+                multiAnalyzeInstanceId: 'kimi',
+            },
+        }));
+        vi.mocked(fs.writeFileSync).mockImplementation(() => { });
+
+        const { updateAppConfig, getMultiAnalyzeOpenAIConfig } = await import('@/lib/config');
+        const result = updateAppConfig({
+            openai: { multiAnalyzeInstanceId: null },
+        });
+
+        expect(result.openai?.multiAnalyzeInstanceId).toBeUndefined();
+        expect(result.openai?.activeInstanceId).toBe('ds');
+
+        // 模拟下一次从持久化配置读取，确认清除后实际路由到活跃实例
+        vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(result));
+        expect(getMultiAnalyzeOpenAIConfig()?.id).toBe('ds');
+    });
 });

@@ -506,6 +506,7 @@ export const translations = {
                     AI_CONNECTION_FAILED: "Cannot connect to AI server, check network or Base URL",
                     AI_TIMEOUT_ERROR: "Request timeout, server response too slow",
                     AI_RESPONSE_ERROR: "AI response format error, model may be incompatible",
+                    AI_OUTPUT_TRUNCATED: "AI output was truncated after using the token budget; please retry",
                     AI_SERVICE_UNAVAILABLE: "AI service unavailable (503), no available channel",
                     AI_UNKNOWN_ERROR: "AI service error, check config or try again",
                     VISION_NOT_SUPPORTED: "This model does not support vision",
@@ -579,6 +580,7 @@ export const translations = {
         errors: {
             AI_CONNECTION_FAILED: "Network error. Please check your connection.",
             AI_RESPONSE_ERROR: "AI response invalid. Please try again.",
+            AI_OUTPUT_TRUNCATED: "AI used its token budget before finishing. Please retry or use a lower-reasoning model.",
             AI_AUTH_ERROR: "AI service authentication failed. Please check API key.",
             aiAuth: "⚠️ Invalid API key\n\nPlease check your AI provider settings and verify the API key is correct",
             aiConnectionFailed: "⚠️ Cannot connect to AI service\n\nPlease check:\n• Internet connection\n• Proxy settings\n• Firewall configuration",
@@ -1263,6 +1265,7 @@ export const translations = {
                     AI_CONNECTION_FAILED: "无法连接 AI 服务器，请检查网络或 Base URL",
                     AI_TIMEOUT_ERROR: "请求超时，服务器响应过慢",
                     AI_RESPONSE_ERROR: "AI 返回格式异常，可能模型不兼容",
+                    AI_OUTPUT_TRUNCATED: "模型思考或输出过长，响应被截断，请重试",
                     AI_SERVICE_UNAVAILABLE: "AI 服务不可用 (503)，无可用渠道",
                     AI_UNKNOWN_ERROR: "AI 服务返回错误，请检查配置或稍后重试",
                     VISION_NOT_SUPPORTED: "该模型不支持图像识别",
@@ -1336,6 +1339,7 @@ export const translations = {
         errors: {
             AI_CONNECTION_FAILED: "网络连接失败，请检查网络设置。",
             AI_RESPONSE_ERROR: "AI 返回数据格式异常，请重试。",
+            AI_OUTPUT_TRUNCATED: "模型思考或输出过长，token 预算耗尽，响应被截断。请重试或改用低思考模型。",
             AI_AUTH_ERROR: "AI 服务认证失败，请检查 API Key 配置。",
             aiAuth: "⚠️ API 密钥无效\n\n请检查设置中的 AI 提供商配置，确认 API Key 是否正确",
             aiConnectionFailed: "⚠️ 无法连接到 AI 服务\n\n请检查：\n• 网络连接是否正常\n• 是否需要配置代理\n• 防火墙设置",

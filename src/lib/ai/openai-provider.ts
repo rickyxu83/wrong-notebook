@@ -21,7 +21,7 @@ export class OpenAIProvider implements AIService {
     private baseURL: string;
     private apiKey: string;
     private isLongCat: boolean;
-    /** kimi coding 端点的 k3 系推理模型支持 reasoning_effort=low（阅卷是转录+批改，低档思考足够，实测快 2.3 倍） */
+    /** Kimi Coding 推理模型支持 reasoning_effort=low，避免长思考耗尽输出预算 */
     private supportsLowReasoning: boolean;
 
     constructor(config?: AIConfig) {
@@ -44,7 +44,8 @@ export class OpenAIProvider implements AIService {
         this.baseURL = baseURL || 'https://api.openai.com/v1';
         this.apiKey = apiKey;
         this.isLongCat = this.baseURL.includes('longcat.chat');
-        this.supportsLowReasoning = this.baseURL.includes('kimi.com/coding') && /k3/i.test(this.model);
+        this.supportsLowReasoning = this.baseURL.includes('kimi.com/coding')
+            && (/k3/i.test(this.model) || /kimi-for-coding/i.test(this.model));
 
         logger.info({
             provider: 'OpenAI',
@@ -341,11 +342,17 @@ export class OpenAIProvider implements AIService {
                 throw new Error("AI_RESPONSE_ERROR: API returned empty or invalid response");
             }
 
-            const text = response.choices[0]?.message?.content || "";
+            const choice = response.choices[0];
+            const text = choice?.message?.content || "";
 
             logger.box('🤖 AI Raw Response', text);
 
-            if (!text) throw new Error("Empty response from AI");
+            // 推理模型的 max_tokens 同时包含思考和正文；打满后可能正文为空或只有半个 XML 块
+            if (choice?.finish_reason === 'length') {
+                logger.error({ model: this.model, usage: response.usage }, 'AI output truncated by max_tokens');
+                throw new Error("AI_OUTPUT_TRUNCATED");
+            }
+            if (!text) throw new Error("AI_RESPONSE_ERROR: Empty response from AI");
             const parsedResult = mode === 'single' ? this.parseResponse(text) : this.parseResponseMulti(text);
 
             logger.box('✅ Parsed & Validated Result', JSON.stringify(parsedResult, null, 2));
@@ -563,6 +570,13 @@ export class OpenAIProvider implements AIService {
         logger.error({ error }, 'OpenAI error');
         if (error instanceof Error) {
             const msg = error.message.toLowerCase();
+            // 已标准化的业务错误不能被兜底改写，否则前端只剩笼统的“未知 AI 错误”
+            if (msg.includes('ai_output_truncated')) {
+                throw new Error("AI_OUTPUT_TRUNCATED");
+            }
+            if (msg.includes('ai_response_error')) {
+                throw new Error("AI_RESPONSE_ERROR");
+            }
             if (msg.includes('fetch failed') || msg.includes('network') || msg.includes('connect')) {
                 throw new Error("AI_CONNECTION_FAILED");
             }

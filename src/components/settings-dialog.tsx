@@ -994,7 +994,8 @@ export function SettingsDialog() {
                                                             ...prev,
                                                             openai: {
                                                                 ...prev.openai,
-                                                                multiAnalyzeInstanceId: v === '__active__' ? undefined : v,
+                                                                // null 必须显式传到后端：undefined 会被 JSON 序列化丢弃，导致旧的专用实例无法清除
+                                                                multiAnalyzeInstanceId: v === '__active__' ? null : v,
                                                             }
                                                         }))}
                                                     >

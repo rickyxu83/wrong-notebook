@@ -116,7 +116,7 @@ export interface AppConfig {
         instances?: OpenAIInstance[];
         activeInstanceId?: string;
         // 整卷拆分（多题识别）专用实例
-        multiAnalyzeInstanceId?: string;
+        multiAnalyzeInstanceId?: string | null;
     };
     gemini?: {
         apiKey?: string;

@@ -155,6 +155,7 @@ export async function POST(req: Request) {
         if (error.message && (
             error.message === 'AI_CONNECTION_FAILED' ||
             error.message === 'AI_RESPONSE_ERROR' ||
+            error.message === 'AI_OUTPUT_TRUNCATED' ||
             error.message.includes('AI_AUTH_ERROR') ||
             error.message === 'AI_TIMEOUT_ERROR' ||
             error.message === 'AI_QUOTA_EXCEEDED' ||

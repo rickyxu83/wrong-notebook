@@ -20,7 +20,7 @@ function parseErrorCode(error: unknown): string {
     // 1. 首先检查是否是 AI Provider 抛出的标准错误代码（直接传递）
     const aiErrorCodes = [
         'AI_CONNECTION_FAILED', 'AI_TIMEOUT_ERROR', 'AI_QUOTA_EXCEEDED',
-        'AI_PERMISSION_DENIED', 'AI_NOT_FOUND', 'AI_RESPONSE_ERROR',
+        'AI_PERMISSION_DENIED', 'AI_NOT_FOUND', 'AI_RESPONSE_ERROR', 'AI_OUTPUT_TRUNCATED',
         'AI_AUTH_ERROR', 'AI_SERVICE_UNAVAILABLE', 'AI_UNKNOWN_ERROR'
     ];
     for (const code of aiErrorCodes) {
