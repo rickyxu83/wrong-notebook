@@ -52,6 +52,18 @@ export function fixMalformedTables(text: string): string {
     return out.join('\n');
 }
 
+/**
+ * 兼容 AI 常用的 \( ... \) 与 \[ ... \] 公式定界符。
+ * remark-math 只认 $...$，不转换的话反斜杠会被 Markdown 吃掉，
+ * 界面上就会显示成“(AC=\dfrac34 AB)”这种看似乱码的源码。
+ */
+export function normalizeMathDelimiters(text: string): string {
+    if (!text) return text;
+    return text
+        .replace(/\\\[([\s\S]*?)\\\]/g, (_m, body: string) => `\n$$\n${body.trim()}\n$$\n`)
+        .replace(/\\\(([\s\S]*?)\\\)/g, (_m, body: string) => `$${body.trim()}$`);
+}
+
 interface MarkdownRendererProps {
     content: string;
     className?: string;
@@ -60,7 +72,7 @@ interface MarkdownRendererProps {
 export function MarkdownRenderer({ content, className = '' }: MarkdownRendererProps) {
     // Preprocess content to ensure proper paragraph breaks and LaTeX rendering
     // Convert single line breaks to double line breaks for better readability
-    const processedContent = fixMalformedTables(content
+    const processedContent = fixMalformedTables(normalizeMathDelimiters(content)
         // First, convert literal \n sequences to actual newlines (fix for AI responses)
         .replace(/\\n/g, '\n')
         // Preserve existing double line breaks with a unique marker

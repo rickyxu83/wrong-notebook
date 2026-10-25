@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
+import { normalizeMathDelimiters } from '@/components/markdown-renderer';
 
 /**
  * 行内渲染含 LaTeX 的短文本（如知识点标签 "速度公式 $v=\frac{s}{t}$ 的应用"）。
@@ -17,7 +18,7 @@ export function InlineMath({ content }: { content: string }) {
                 p: ({ node, ...props }) => <span {...props} />,
             }}
         >
-            {content}
+            {normalizeMathDelimiters(content)}
         </ReactMarkdown>
     );
 }
