@@ -40,8 +40,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
                         error: true,
                         createdAt: true,
                         completedAt: true,
-                        // 依赖图形的相似题需要展示原题图（同图不同数）
-                        errorItem: { select: { originalImageUrl: true } },
                     },
                 },
             },
@@ -51,30 +49,17 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
             return notFound("Paper not found");
         }
 
-        const jobs = paper.jobs.map((j) => {
-            let result: Record<string, unknown> | null = null;
-            if (j.resultJson) {
-                try {
-                    result = JSON.parse(j.resultJson);
-                } catch {
-                    result = null;
-                }
-            }
-            // 只有 AI 判定依赖图形的题才附带原题图，避免无谓的大字段传输
-            const needsFigure = result?.requiresImage === true;
-            return {
-                id: j.id,
-                errorItemId: j.errorItemId,
-                orderIndex: j.orderIndex,
-                status: j.status,
-                difficulty: j.difficulty,
-                error: j.error,
-                createdAt: j.createdAt,
-                completedAt: j.completedAt,
-                result,
-                referenceImageUrl: needsFigure ? (j.errorItem?.originalImageUrl || null) : null,
-            };
-        });
+        const jobs = paper.jobs.map((j) => ({
+            id: j.id,
+            errorItemId: j.errorItemId,
+            orderIndex: j.orderIndex,
+            status: j.status,
+            difficulty: j.difficulty,
+            error: j.error,
+            createdAt: j.createdAt,
+            completedAt: j.completedAt,
+            result: j.resultJson ? JSON.parse(j.resultJson) : null,
+        }));
 
         return NextResponse.json({
             id: paper.id,

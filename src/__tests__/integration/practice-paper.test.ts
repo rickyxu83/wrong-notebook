@@ -48,7 +48,7 @@ vi.mock('next-auth', () => ({
 vi.mock('@/lib/auth', () => ({ authOptions: {} }));
 
 import { POST as PAPERS_POST } from '@/app/api/practice/papers/route';
-import { GET as PAPER_DETAIL_GET, POST as PAPER_DETAIL_POST } from '@/app/api/practice/papers/[id]/route';
+import { POST as PAPER_DETAIL_POST } from '@/app/api/practice/papers/[id]/route';
 import { runPracticePaper, createPracticePaper } from '@/lib/practice-jobs';
 import { getServerSession } from 'next-auth';
 
@@ -151,68 +151,6 @@ describe('/api/practice/papers', () => {
         vi.mocked(getServerSession).mockResolvedValue(null);
         const response = await PAPERS_POST(postRequest({ errorItemIds: ['a'] }));
         expect(response.status).toBe(401);
-    });
-});
-
-describe('GET /api/practice/papers/[id] 参考图形', () => {
-    const paperWith = (requiresImage: boolean) => ({
-        id: 'paper-1',
-        userId: 'user-123',
-        status: 'done',
-        difficulty: 'medium',
-        language: 'zh',
-        createdAt: new Date('2026-10-25T06:00:00Z'),
-        completedAt: new Date('2026-10-25T06:01:00Z'),
-        jobs: [
-            {
-                id: 'job-1',
-                errorItemId: 'item-1',
-                orderIndex: 0,
-                status: 'done',
-                difficulty: 'medium',
-                resultJson: JSON.stringify({
-                    questionText: '如图，求 $x$。',
-                    answerText: '$x=1$',
-                    analysis: '解析',
-                    requiresImage,
-                }),
-                error: null,
-                createdAt: new Date(),
-                completedAt: new Date(),
-                errorItem: { originalImageUrl: 'data:image/png;base64,AAA' },
-            },
-        ],
-    });
-
-    beforeEach(() => {
-        vi.clearAllMocks();
-        vi.mocked(getServerSession).mockResolvedValue(mocks.mockSession);
-        mocks.mockPrismaUser.findUnique.mockResolvedValue({ id: 'user-123' });
-    });
-
-    it('依赖图形的题目应返回原题图作为参考图形', async () => {
-        mocks.mockPrismaPracticePaper.findUnique.mockResolvedValue(paperWith(true));
-        const response = await PAPER_DETAIL_GET(
-            new Request('http://localhost/api/practice/papers/paper-1'),
-            { params: Promise.resolve({ id: 'paper-1' }) }
-        );
-        const data = await response.json();
-
-        expect(response.status).toBe(200);
-        expect(data.jobs[0].referenceImageUrl).toBe('data:image/png;base64,AAA');
-        expect(data.jobs[0].result.requiresImage).toBe(true);
-    });
-
-    it('不依赖图形的题目不携带图片，避免无谓的大字段传输', async () => {
-        mocks.mockPrismaPracticePaper.findUnique.mockResolvedValue(paperWith(false));
-        const response = await PAPER_DETAIL_GET(
-            new Request('http://localhost/api/practice/papers/paper-1'),
-            { params: Promise.resolve({ id: 'paper-1' }) }
-        );
-        const data = await response.json();
-
-        expect(response.status).toBe(200);
-        expect(data.jobs[0].referenceImageUrl).toBeNull();
     });
 });
 
