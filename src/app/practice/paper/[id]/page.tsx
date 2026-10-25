@@ -20,6 +20,8 @@ interface PaperJob {
     status: "pending" | "running" | "done" | "failed";
     difficulty: string;
     error: string | null;
+    /** 依赖图形的相似题会带回原题图（同图不同数） */
+    referenceImageUrl?: string | null;
     result: {
         questionText: string;
         answerText: string;
@@ -224,6 +226,19 @@ export default function PracticePaperPage() {
                                 {job.status === "done" && job.result && (
                                     <>
                                         <MarkdownRenderer content={job.result.questionText} className="font-medium" />
+
+                                        {job.referenceImageUrl && (
+                                            <figure className="rounded-md border bg-muted/20 p-2">
+                                                <img
+                                                    src={job.referenceImageUrl}
+                                                    alt={t.practicePaper?.referenceFigure || "题目参考图形"}
+                                                    className="mx-auto max-h-72 w-auto max-w-full rounded"
+                                                />
+                                                <figcaption className="mt-1 text-center text-xs text-muted-foreground">
+                                                    {t.practicePaper?.referenceFigureHint || "参考图形（沿用原题，仅数值与条件变化）"}
+                                                </figcaption>
+                                            </figure>
+                                        )}
 
                                         {/* 手写演算区（墨水屏手写笔友好） */}
                                         <div>

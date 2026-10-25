@@ -323,6 +323,8 @@ export const translations = {
             hideSketch: "Hide sketch pad",
             retryFailed: "Retry failed questions",
             retryRequestFailed: "Retry failed. Please try again later.",
+            referenceFigure: "Reference figure",
+            referenceFigureHint: "Reference figure (same as the original; only values and conditions change)",
         },
         multiReview: {
             title: "{count} questions detected",
@@ -1085,6 +1087,8 @@ export const translations = {
             hideSketch: "收起演算区",
             retryFailed: "重试失败题",
             retryRequestFailed: "重试请求失败，请稍后再试。",
+            referenceFigure: "题目参考图形",
+            referenceFigureHint: "参考图形（沿用原题，仅数值与条件变化）",
         },
         multiReview: {
             title: "识别到 {count} 道题",

@@ -19,6 +19,8 @@ interface PaperJob {
     orderIndex: number | null;
     status: string;
     difficulty: string;
+    /** 依赖图形的相似题会带回原题图（同图不同数） */
+    referenceImageUrl?: string | null;
     result: {
         questionText: string;
         answerText: string;
@@ -106,6 +108,18 @@ export default function PracticePaperPrintPage() {
                                 {(t.practicePaper?.questionNumber || "第 {index} 题").replace("{index}", String(idx + 1))}
                             </h3>
                             <MarkdownRenderer content={job.result!.questionText} className="text-base leading-relaxed" />
+                            {job.referenceImageUrl && (
+                                <div className="my-3 print:break-inside-avoid">
+                                    <img
+                                        src={job.referenceImageUrl}
+                                        alt={t.practicePaper?.referenceFigure || "题目参考图形"}
+                                        className="mx-auto max-h-80 w-auto max-w-full rounded border"
+                                    />
+                                    <p className="mt-1 text-center text-xs text-muted-foreground print:hidden">
+                                        {t.practicePaper?.referenceFigureHint || "参考图形（沿用原题，仅数值与条件变化）"}
+                                    </p>
+                                </div>
+                            )}
                             <div className="pt-4">
                                 <p className="text-sm text-muted-foreground mb-2">{t.practicePaper?.answerArea || "作答区："}</p>
                                 <div className="h-48 border border-dashed rounded-lg" />
