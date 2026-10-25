@@ -555,6 +555,14 @@ function HomeContent() {
                     </div>
                 </div>
 
+                <section className="handbook-hero">
+                    <div className="handbook-hero__eyebrow">A LITTLE PROGRESS, EVERY DAY</div>
+                    <h1>
+                        {language === 'zh' ? <>今天，也向<em>更好的自己</em>靠近一点。</> : <>A little closer to <em>your best self</em>, every day.</>}
+                    </h1>
+                    <p>{language === 'zh' ? '把每一道错题，都变成下一次得分的机会。' : 'Turn every mistake into another chance to improve.'}</p>
+                </section>
+
                 {/* Action Center */}
                 <div className={initialNotebookId ? "flex justify-center mb-6" : "grid grid-cols-2 md:grid-cols-4 gap-4"}>
                     <Button
@@ -616,9 +624,9 @@ function HomeContent() {
                 {step === "upload" && (
                     <div className="space-y-4 eink-hide">
                         {/* Input mode tabs */}
-                        <div className="flex gap-2 border-b">
+                        <div className="handbook-input-tabs flex gap-2 border-b">
                             <button
-                                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                                className={`handbook-input-tab flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
                                     inputMode === "image"
                                         ? "border-primary text-primary"
                                         : "border-transparent text-muted-foreground hover:text-foreground"
@@ -629,7 +637,7 @@ function HomeContent() {
                                 {t.app?.uploadImage || "拍照上传"}
                             </button>
                             <button
-                                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                                className={`handbook-input-tab flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
                                     inputMode === "text"
                                         ? "border-primary text-primary"
                                         : "border-transparent text-muted-foreground hover:text-foreground"
@@ -640,7 +648,7 @@ function HomeContent() {
                                 {t.app?.manualInput || "AI解题"}
                             </button>
                             <button
-                                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                                className={`handbook-input-tab flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
                                     inputMode === "direct"
                                         ? "border-primary text-primary"
                                         : "border-transparent text-muted-foreground hover:text-foreground"

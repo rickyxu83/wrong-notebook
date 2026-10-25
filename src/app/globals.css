@@ -43,38 +43,40 @@
 }
 
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  /* 暖纸手账：米白纸张 + 鼠尾草绿 + 焦糖色强调 */
+  --radius: 0.25rem;
+  --font-handbook-title: "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", serif;
+  --background: #f2ecdf;
+  --foreground: #383c35;
+  --card: #fffdf8;
+  --card-foreground: #383c35;
+  --popover: #fffdf8;
+  --popover-foreground: #383c35;
+  --primary: #64745a;
+  --primary-foreground: #fffaf2;
+  --secondary: #eee9db;
+  --secondary-foreground: #4b5145;
+  --muted: #f3eee2;
+  --muted-foreground: #807c70;
+  --accent: #e9e2d2;
+  --accent-foreground: #8e5835;
+  --destructive: #a64f43;
+  --border: #ded5c4;
+  --input: #cfc4af;
+  --ring: #b06b3d;
+  --chart-1: #64745a;
+  --chart-2: #b06b3d;
+  --chart-3: #87977b;
+  --chart-4: #c69a67;
+  --chart-5: #8a7161;
+  --sidebar: #f7f1e6;
+  --sidebar-foreground: #383c35;
+  --sidebar-primary: #64745a;
+  --sidebar-primary-foreground: #fffaf2;
+  --sidebar-accent: #e9e2d2;
+  --sidebar-accent-foreground: #8e5835;
+  --sidebar-border: #ded5c4;
+  --sidebar-ring: #b06b3d;
 }
 
 .dark {
@@ -118,6 +120,19 @@
 
   body {
     @apply bg-background text-foreground;
+    background-image: linear-gradient(rgba(118, 102, 70, 0.035) 1px, transparent 1px);
+    background-size: 100% 28px;
+  }
+
+  h1,
+  h2,
+  [data-slot="card-title"] {
+    font-family: var(--font-handbook-title);
+  }
+
+  ::selection {
+    background: #ddd2b7;
+    color: #383c35;
   }
 }
 
@@ -223,4 +238,271 @@ html.eink {
 .eink .bg-blue-50,
 .eink .bg-orange-50 {
   background-color: #ffffff !important;
+}
+
+/* ============ 暖纸手账主题（E-ink 与打印规则仍优先） ============ */
+[data-slot="card"] {
+  border-radius: 5px;
+  box-shadow: 3px 4px 0 rgba(90, 76, 53, 0.07);
+}
+
+[data-slot="button"]:not(.rounded-full) {
+  border-radius: 3px;
+}
+
+[data-slot="button"] {
+  transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+[data-slot="button"]:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+[data-slot="input"],
+[data-slot="textarea"],
+[data-slot="select-trigger"] {
+  border-radius: 3px;
+}
+
+[data-slot="badge"] {
+  border-radius: 3px;
+}
+
+[data-slot="dialog-content"] {
+  border-radius: 6px;
+  background-color: var(--card);
+}
+
+.handbook-brand-mark {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  color: var(--primary-foreground);
+  background: var(--primary);
+  border: 1px solid rgba(56, 60, 53, 0.12);
+  border-radius: 4px;
+  box-shadow: 2px 3px 0 rgba(90, 76, 53, 0.12);
+  transform: rotate(-3deg);
+}
+
+.handbook-brand-name {
+  display: block;
+  font-family: var(--font-handbook-title);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: 0.02em;
+}
+
+.handbook-brand-sub {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted-foreground);
+  font-size: 8px;
+  font-weight: 650;
+  letter-spacing: 0.16em;
+}
+
+.handbook-hero {
+  position: relative;
+  padding: 6px 3px 26px;
+  border-bottom: 1px solid var(--border);
+}
+
+.handbook-hero__eyebrow {
+  margin-bottom: 10px;
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.16em;
+}
+
+.handbook-hero h1 {
+  max-width: 760px;
+  margin: 0;
+  font-size: clamp(32px, 5vw, 44px);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.035em;
+}
+
+.handbook-hero h1 em {
+  color: var(--primary);
+  font-style: normal;
+  border-bottom: 4px solid #d9c899;
+}
+
+.handbook-hero p {
+  margin: 12px 0 0;
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+
+.handbook-upload {
+  position: relative;
+  border-color: #c6b99e !important;
+  background: rgba(255, 253, 248, 0.82);
+}
+
+.handbook-upload::before {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  top: -11px;
+  left: 50%;
+  width: 86px;
+  height: 23px;
+  background: rgba(217, 200, 153, 0.55);
+  transform: translateX(-50%) rotate(1deg);
+  pointer-events: none;
+}
+
+.handbook-upload-icon {
+  color: #fffaf2 !important;
+  background: #b06b3d !important;
+  box-shadow: 2px 3px 0 rgba(120, 70, 35, 0.16);
+}
+
+.handbook-upload-icon svg {
+  color: inherit !important;
+}
+
+.markdown-content {
+  line-height: 1.8;
+}
+
+.handbook-mobile-nav {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  body {
+    padding-bottom: calc(78px + env(safe-area-inset-bottom));
+  }
+
+  .handbook-input-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0;
+  }
+
+  .handbook-input-tab {
+    min-width: 0;
+    justify-content: center;
+    gap: 5px;
+    padding: 10px 3px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .handbook-input-tab svg {
+    width: 14px;
+    height: 14px;
+    flex: 0 0 auto;
+  }
+
+  .handbook-mobile-nav {
+    position: fixed;
+    z-index: 45;
+    left: 12px;
+    right: 12px;
+    bottom: max(10px, env(safe-area-inset-bottom));
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    align-items: center;
+    min-height: 60px;
+    padding: 5px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: rgba(255, 253, 248, 0.96);
+    box-shadow: 3px 5px 0 rgba(90, 76, 53, 0.12), 0 8px 28px rgba(90, 76, 53, 0.12);
+    backdrop-filter: blur(14px);
+  }
+
+  .handbook-mobile-nav__item {
+    min-width: 0;
+    min-height: 48px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    color: var(--muted-foreground);
+    font-size: 9px;
+    line-height: 1.2;
+  }
+
+  .handbook-mobile-nav__item.active {
+    color: var(--primary);
+    font-weight: 700;
+  }
+
+  .handbook-mobile-nav__icon {
+    display: grid;
+    place-items: center;
+  }
+
+  .handbook-mobile-nav__icon svg {
+    width: 20px;
+    height: 20px;
+    stroke-width: 1.8;
+  }
+
+  .handbook-mobile-nav__primary {
+    position: relative;
+    color: #b06b3d;
+  }
+
+  .handbook-mobile-nav__primary .handbook-mobile-nav__icon {
+    width: 46px;
+    height: 46px;
+    margin-top: -27px;
+    border-radius: 50%;
+    color: #fffaf2;
+    background: #b06b3d;
+    border: 3px solid #fffdf8;
+    box-shadow: 2px 3px 0 rgba(120, 70, 35, 0.2);
+  }
+
+  .handbook-mobile-nav__primary .handbook-mobile-nav__icon svg {
+    width: 22px;
+    height: 22px;
+  }
+}
+
+@media (max-width: 640px) {
+  [data-slot="card-header"],
+  [data-slot="card-content"] {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+
+  .handbook-hero {
+    padding-bottom: 22px;
+  }
+
+  .handbook-hero h1 {
+    font-size: 33px;
+  }
+
+  .handbook-hero p {
+    font-size: 12px;
+  }
+}
+
+@media print {
+  body {
+    background: #ffffff !important;
+    padding-bottom: 0 !important;
+  }
+
+  .handbook-mobile-nav {
+    display: none !important;
+  }
+
+  [data-slot="card"] {
+    box-shadow: none !important;
+  }
 }

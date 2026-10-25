@@ -188,12 +188,12 @@ export function UploadZone({ onImageSelect, onImagesSelect, isAnalyzing }: Uploa
         <div className="space-y-4">
             <Card
                 {...getRootProps()}
-                className={`border-2 border-dashed cursor-pointer transition-colors hover:border-primary/50 ${isDragActive ? "border-primary bg-primary/5" : "border-muted-foreground/25"
+                className={`handbook-upload border-2 border-dashed cursor-pointer transition-colors hover:border-primary/50 ${isDragActive ? "border-primary bg-primary/5" : "border-muted-foreground/25"
                     }`}
             >
                 <CardContent className="flex flex-col items-center justify-center py-12 space-y-4 text-center min-h-[300px]">
                     <input {...getInputProps()} />
-                    <div className="p-4 bg-muted rounded-full">
+                    <div className="handbook-upload-icon p-4 rounded-full">
                         {isAnalyzing ? (
                             <Loader2 className="h-10 w-10 text-primary animate-spin" />
                         ) : (

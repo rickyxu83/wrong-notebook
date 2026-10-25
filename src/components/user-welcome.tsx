@@ -3,9 +3,8 @@
 import { useState, useEffect } from "react";
 
 import { useLanguage } from "@/contexts/LanguageContext";
-import { useSession, signOut } from "next-auth/react";
-import { Button } from "@/components/ui/button";
-import { LogOut, User } from "lucide-react";
+import { useSession } from "next-auth/react";
+import { BookOpen } from "lucide-react";
 
 export function UserWelcome() {
     const { t, language } = useLanguage();
@@ -21,12 +20,18 @@ export function UserWelcome() {
     const userName = mounted && session?.user ? (session.user.name || session.user.email) : 'User';
 
     return (
-        <div className="flex items-center gap-2 bg-card p-4 rounded-lg border shadow-sm animate-in fade-in slide-in-from-top-4 duration-700">
-            <User className="h-5 w-5 text-primary" />
-            <span className="font-medium">
-                {t.common.welcome || 'Welcome back, '}
-                {userName}
-            </span>
+        <div className="flex min-w-0 items-center gap-3 animate-in fade-in slide-in-from-top-4 duration-700">
+            <div className="handbook-brand-mark">
+                <BookOpen className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+                <span className="handbook-brand-name">错题本</span>
+                <span className="handbook-brand-sub">WRONG NOTEBOOK</span>
+                <span className="sr-only">
+                    {t.common.welcome || 'Welcome back, '}
+                    {userName}
+                </span>
+            </div>
         </div>
     );
 }

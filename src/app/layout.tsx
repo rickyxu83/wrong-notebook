@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
+import { MobileNav } from "@/components/mobile-nav";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -14,11 +15,12 @@ const geistMono = Geist_Mono({
 });
 
 export const viewport: Viewport = {
-  themeColor: '#f97316',
+  themeColor: '#f2ecdf',
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  maximumScale: 5,
+  userScalable: true,
+  viewportFit: 'cover',
 };
 
 export const metadata: Metadata = {
@@ -70,6 +72,7 @@ export default function RootLayout({
         />
         <Providers>
           {children}
+          <MobileNav />
         </Providers>
       </body>
     </html>
