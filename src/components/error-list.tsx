@@ -3,10 +3,11 @@
 import { useEffect, useState, useRef } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { InlineMath } from "@/components/inline-math";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Search, Filter, CheckCircle, Clock, ChevronDown, Printer, ListChecks, Trash2, X } from "lucide-react";
+import { Search, Filter, CheckCircle, Clock, ChevronDown, Printer, ListChecks, Trash2, X, CalendarCheck, FileText, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { format } from "date-fns";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -42,7 +43,7 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
     const [items, setItems] = useState<ErrorItem[]>([]);
     const [, setLoading] = useState(true);
     const [search, setSearch] = useState("");
-    const [masteryFilter, setMasteryFilter] = useState<"all" | "mastered" | "unmastered">("all");
+    const [masteryFilter, setMasteryFilter] = useState<"all" | "mastered" | "unmastered">("unmastered");
     const [timeFilter, setTimeFilter] = useState<"all" | "week" | "month">("all");
     const [gradeFilter, setGradeFilter] = useState("");
     const [chapterFilter, setChapterFilter] = useState("");
@@ -58,8 +59,23 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
     const [isSelectMode, setIsSelectMode] = useState(false);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [isDeleting, setIsDeleting] = useState(false);
+    // 批量出卷（举一反三试卷）
+    const [isCreatingPaper, setIsCreatingPaper] = useState(false);
+    // 今日待复习（简化艾宾浩斯，issue #88）
+    const [dueOnly, setDueOnly] = useState(false);
+    const [dueCount, setDueCount] = useState(0);
     const { t, language } = useLanguage();
     const router = useRouter();
+
+    // 今日待复习数量（挂载时 + 每次回到本页时刷新；会触发老数据的排期懒补齐）
+    const refreshDueCount = () => {
+        apiClient.get<{ count: number }>("/api/review/due")
+            .then(d => setDueCount(d.count))
+            .catch(() => { });
+    };
+    useEffect(() => {
+        refreshDueCount();
+    }, []);
 
     const handleExportPrint = () => {
         const params = new URLSearchParams();
@@ -123,6 +139,38 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
         });
     };
 
+    /** 创建举一反三试卷：selected=多选选中 / filtered=当前筛选条件全部，难度由下拉菜单传入 */
+    const createPaper = async (scope: "selected" | "filtered", difficulty: string) => {
+        if (isCreatingPaper) return;
+        setIsCreatingPaper(true);
+        try {
+            const payload = scope === "selected"
+                ? { errorItemIds: Array.from(selectedIds), difficulty, language }
+                : {
+                    difficulty,
+                    language,
+                    filter: {
+                        subjectId: subjectId ?? null,
+                        query: search || null,
+                        mastery: masteryFilter === "all" ? null : masteryFilter === "mastered" ? "1" : "0",
+                        timeRange: timeFilter,
+                        chapter: chapterFilter || null,
+                        tag: selectedTag,
+                        gradeSemester: gradeFilter || null,
+                        paperLevel: paperLevelFilter,
+                        dueOnly,
+                    },
+                };
+            const { paperId } = await apiClient.post<{ paperId: string }>("/api/practice/papers", payload);
+            router.push(`/practice/paper/${paperId}`);
+        } catch (error) {
+            console.error(error);
+            alert(t.practicePaper?.createFailed || "创建试卷失败，请重试");
+        } finally {
+            setIsCreatingPaper(false);
+        }
+    };
+
     // 多选模式相关函数
     const toggleSelectMode = () => {
         setIsSelectMode(!isSelectMode);
@@ -140,6 +188,17 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
                 newSet.add(id);
             }
             return newSet;
+        });
+    };
+
+    const currentPageAllSelected = items.length > 0 && items.every((item) => selectedIds.has(item.id));
+
+    const toggleSelectCurrentPage = () => {
+        setSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (currentPageAllSelected) items.forEach((item) => next.delete(item.id));
+            else items.forEach((item) => next.add(item.id));
+            return next;
         });
     };
 
@@ -193,7 +252,7 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
 
         // 正常请求数据
         fetchItems();
-    }, [page, search, masteryFilter, timeFilter, selectedTag, subjectId, gradeFilter, chapterFilter, paperLevelFilter]);
+    }, [page, search, masteryFilter, timeFilter, selectedTag, subjectId, gradeFilter, chapterFilter, paperLevelFilter, dueOnly]);
 
     const fetchItems = async () => {
         setLoading(true);
@@ -213,6 +272,7 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
             if (gradeFilter) params.append("gradeSemester", gradeFilter);
             if (chapterFilter) params.append("chapter", chapterFilter); // 章节筛选
             if (paperLevelFilter !== "all") params.append("paperLevel", paperLevelFilter);
+            if (dueOnly) params.append("dueOnly", "1");
             // 分页参数
             params.append("page", page.toString());
             params.append("pageSize", pageSize.toString());
@@ -228,8 +288,29 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
         }
     };
 
+    // 从详情页返回（复习标记后）时自动刷新：复习过的题会从到期列表消失
+    const fetchItemsRef = useRef(fetchItems);
+    fetchItemsRef.current = fetchItems;
+    const refreshDueCountRef = useRef(refreshDueCount);
+    refreshDueCountRef.current = refreshDueCount;
+    useEffect(() => {
+        const onVisible = () => {
+            if (document.visibilityState === 'visible') {
+                fetchItemsRef.current();
+                refreshDueCountRef.current();
+            }
+        };
+        document.addEventListener('visibilitychange', onVisible);
+        window.addEventListener('focus', onVisible);
+        return () => {
+            document.removeEventListener('visibilitychange', onVisible);
+            window.removeEventListener('focus', onVisible);
+        };
+    }, []);
+
+
     return (
-        <div className="space-y-6">
+        <div className={isSelectMode ? "space-y-6 pb-36 md:pb-24" : "space-y-6"}>
             <div className="flex flex-col sm:flex-row gap-4">
                 <div className="relative w-full sm:flex-1">
                     <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
@@ -240,6 +321,14 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
                         onChange={(e) => setSearch(e.target.value)}
                     />
                 </div>
+                <Button
+                    variant={dueOnly ? "default" : "outline"}
+                    onClick={() => setDueOnly(!dueOnly)}
+                    className={!dueOnly && dueCount > 0 ? "border-orange-400 text-orange-600 hover:text-orange-700" : ""}
+                >
+                    <CalendarCheck className="mr-2 h-4 w-4" />
+                    {t.filter?.dueToday || "今日待复习"}{dueCount > 0 ? ` (${dueCount})` : ""}
+                </Button>
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <Button variant="outline">
@@ -274,12 +363,30 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
-                <Button variant="outline" onClick={handleExportPrint}>
+                <Button variant="outline" className="eink-hide" onClick={handleExportPrint}>
                     <Printer className="mr-2 h-4 w-4" />
                     {t.notebook?.exportPrint || "导出打印"}
                 </Button>
+                {/* 举一反三试卷：按当前筛选条件批量出题 */}
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="outline" disabled={isCreatingPaper}>
+                            {isCreatingPaper ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
+                            {t.practicePaper?.createPaper || "生成试卷"}
+                        </Button>
+                        </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                        <DropdownMenuLabel>{t.practice?.difficulty?.label || "难度"}</DropdownMenuLabel>
+                        {(["easy", "medium", "hard", "harder"] as const).map((d) => (
+                            <DropdownMenuItem key={d} onClick={() => createPaper("filtered", d)}>
+                                {t.practice?.difficulty?.[d] || d}
+                            </DropdownMenuItem>
+                        ))}
+                    </DropdownMenuContent>
+                </DropdownMenu>
                 <Button
                     variant={isSelectMode ? "secondary" : "outline"}
+                    className="eink-hide"
                     onClick={toggleSelectMode}
                 >
                     <ListChecks className="mr-2 h-4 w-4" />
@@ -335,7 +442,7 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
                         {t.filter.filteringByTag || "Filtering by tag"}:
                     </span>
                     <Badge variant="secondary" className="cursor-pointer" onClick={() => setSelectedTag(null)}>
-                        {selectedTag}
+                        <InlineMath content={selectedTag} />
                         <span className="ml-1 text-xs">×</span>
                     </Badge>
                 </div>
@@ -368,8 +475,16 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
                                     />
                                 </div>
                             )}
-                            <Link href={isSelectMode ? "#" : `/error-items/${item.id}`} onClick={(e) => isSelectMode && e.preventDefault()}>
-                                <Card className="h-full hover:border-primary/50 transition-colors cursor-pointer gap-2 pt-4">
+                            <Link
+                                href={isSelectMode ? "#" : `/error-items/${item.id}`}
+                                onClick={(e) => {
+                                    if (isSelectMode) {
+                                        e.preventDefault();
+                                        toggleSelectItem(item.id, e);
+                                    }
+                                }}
+                            >
+                                <Card className={`h-full hover:border-primary/50 transition-colors cursor-pointer gap-2 pt-4 ${selectedIds.has(item.id) ? "border-primary bg-primary/5" : ""}`}>
                                     <CardHeader className="pb-0">
                                         <div className="flex justify-between items-start">
                                             <Badge
@@ -419,7 +534,7 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
                                                         handleTagClick(tag);
                                                     }}
                                                 >
-                                                    {tag}
+                                                    <InlineMath content={tag} />
                                                 </Badge>
                                             ))}
                                             {tags.length > 3 && (
@@ -458,26 +573,45 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
 
             {/* 多选模式底部操作栏 */}
             {isSelectMode && (
-                <div className="fixed bottom-0 left-0 right-0 bg-background border-t shadow-lg p-4 z-50">
-                    <div className="max-w-6xl mx-auto flex items-center justify-between gap-4">
-                        <span className="text-sm text-muted-foreground">
-                            {(t.notebook?.selectedCount || "{count} selected").replace("{count}", selectedIds.size.toString())}
-                        </span>
-                        <div className="flex gap-2">
-                            <Button
-                                variant="outline"
-                                onClick={toggleSelectMode}
-                            >
-                                <X className="mr-2 h-4 w-4" />
+                <div className="fixed bottom-[calc(74px+env(safe-area-inset-bottom))] md:bottom-0 left-0 right-0 bg-background/95 backdrop-blur border-t shadow-lg p-3 md:p-4 z-40">
+                    <div className="max-w-6xl mx-auto space-y-3">
+                        <div className="flex items-center justify-between gap-3">
+                            <span className="text-sm font-medium">
+                                {(t.notebook?.selectedCount || "{count} selected").replace("{count}", selectedIds.size.toString())}
+                            </span>
+                            <Button variant="ghost" size="sm" onClick={toggleSelectCurrentPage} disabled={items.length === 0}>
+                                <ListChecks className="mr-1.5 h-4 w-4" />
+                                {currentPageAllSelected ? "取消本页" : "全选本页"}
+                            </Button>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 sm:flex sm:justify-end">
+                            <Button variant="outline" onClick={toggleSelectMode}>
+                                <X className="mr-1.5 h-4 w-4" />
                                 {t.notebook?.cancelSelect || "取消"}
                             </Button>
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button className="w-full sm:w-auto" disabled={selectedIds.size === 0 || isCreatingPaper}>
+                                        {isCreatingPaper ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <FileText className="mr-1.5 h-4 w-4" />}
+                                        {language === 'zh' ? '生成试卷' : (t.practicePaper?.createSelected || 'Generate')}
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                    <DropdownMenuLabel>{t.practice?.difficulty?.label || "难度"}</DropdownMenuLabel>
+                                    {(["easy", "medium", "hard", "harder"] as const).map((d) => (
+                                        <DropdownMenuItem key={d} onClick={() => createPaper("selected", d)}>
+                                            {t.practice?.difficulty?.[d] || d}
+                                        </DropdownMenuItem>
+                                    ))}
+                                </DropdownMenuContent>
+                            </DropdownMenu>
                             <Button
                                 variant="destructive"
                                 onClick={handleBatchDelete}
                                 disabled={selectedIds.size === 0 || isDeleting}
                             >
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                {t.notebook?.deleteSelected || "删除选中"}
+                                <Trash2 className="mr-1.5 h-4 w-4" />
+                                {language === 'zh' ? '删除' : (t.notebook?.deleteSelected || 'Delete')}
                             </Button>
                         </div>
                     </div>

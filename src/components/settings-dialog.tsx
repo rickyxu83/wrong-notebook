@@ -983,6 +983,39 @@ export function SettingsDialog() {
                                                     {t.settings?.ai?.maxInstancesReached || "Maximum instances reached (10)"}
                                                 </p>
                                             )}
+
+                                            {/* 整卷拆分专用实例（坐标定位能力要求高，如 Kimi） */}
+                                            {(config.openai?.instances?.length || 0) > 1 && (
+                                                <div className="space-y-2 pt-1">
+                                                    <Label className="text-sm">{t.settings?.ai?.multiAnalyzeInstance || "整卷拆分专用实例"}</Label>
+                                                    <Select
+                                                        value={config.openai?.multiAnalyzeInstanceId || '__active__'}
+                                                        onValueChange={(v) => setConfig(prev => ({
+                                                            ...prev,
+                                                            openai: {
+                                                                ...prev.openai,
+                                                                // null 必须显式传到后端：undefined 会被 JSON 序列化丢弃，导致旧的专用实例无法清除
+                                                                multiAnalyzeInstanceId: v === '__active__' ? null : v,
+                                                            }
+                                                        }))}
+                                                    >
+                                                        <SelectTrigger className="flex-1">
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="__active__">{t.settings?.ai?.multiAnalyzeFollowActive || "跟随活跃实例"}</SelectItem>
+                                                            {(config.openai?.instances || []).map((instance) => (
+                                                                <SelectItem key={instance.id} value={instance.id}>
+                                                                    {instance.name}
+                                                                </SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
+                                                    <p className="text-xs text-muted-foreground">
+                                                        {t.settings?.ai?.multiAnalyzeHint || "扫描整页试卷拆分为多题时使用；坐标定位对模型要求高，建议选定位能力强的实例（如 Kimi）"}
+                                                    </p>
+                                                </div>
+                                            )}
                                         </div>
 
                                         {/* 实例配置表单 */}

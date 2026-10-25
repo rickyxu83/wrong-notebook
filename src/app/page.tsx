@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, Suspense, useEffect } from "react";
+import { useState, Suspense, useEffect, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { UploadZone } from "@/components/upload-zone";
 import { CorrectionEditor } from "@/components/correction-editor";
-import { ImageCropper } from "@/components/image-cropper";
 import { ParsedQuestion } from "@/lib/ai";
 import { UserWelcome } from "@/components/user-welcome";
 import { apiClient } from "@/lib/api-client";
@@ -13,7 +12,10 @@ import { AnalyzeResponse, Notebook, AppConfig } from "@/types/api";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { processImageFile } from "@/lib/image-utils";
-import { Upload, BookOpen, Tags, LogOut, BarChart3, PenLine } from "lucide-react";
+import { enhancePaperImage } from "@/lib/image-enhance";
+import { preloadOpenCV, rectifyPaperImage } from "@/lib/doc-detect";
+import { PaperStudio } from "@/components/paper-studio";
+import { Upload, BookOpen, Tags, LogOut, BarChart3, PenLine, Loader2 } from "lucide-react";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { BroadcastNotification } from "@/components/broadcast-notification";
 import { signOut } from "next-auth/react";
@@ -22,12 +24,27 @@ import { ProgressFeedback, ProgressStatus } from "@/components/ui/progress-feedb
 import { frontendLogger } from "@/lib/frontend-logger";
 import { TextInputZone } from "@/components/text-input-zone";
 import { DirectTextEditor } from "@/components/direct-text-editor";
+import { MultiQuestionReview } from "@/components/multi-question-review";
 
 function HomeContent() {
-    const [step, setStep] = useState<"upload" | "review">("upload");
+    const [step, setStep] = useState<"upload" | "review" | "multi-review">("upload");
     const [analysisStep, setAnalysisStep] = useState<ProgressStatus>('idle');
     const [progress, setProgress] = useState(0);
     const [parsedData, setParsedData] = useState<ParsedQuestion | null>(null);
+    // 整卷拆分：AI 识别出多道题时进入批量确认页
+    const [parsedQuestions, setParsedQuestions] = useState<ParsedQuestion[]>([]);
+    // 连续扫描：待解析的页面队列（多页一次调用）
+    const [pendingPages, setPendingPages] = useState<string[]>([]);
+    const [studioIndex, setStudioIndex] = useState<number | null>(null); // 打开纸张工作室的页码
+    const [rectifyingPages, setRectifyingPages] = useState<Set<string>>(new Set()); // 后台切边处理中的页
+    // 本次分析的页面图（供确认页裁切/预览用）
+    const [pageImages, setPageImages] = useState<string[]>([]);
+    // 分析失败的内联错误（不用 alert，墨水屏上弹窗体验差）
+    const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+    // 后台任务轮询中标记：抑制安全超时误关遮罩
+    const analyzeJobActiveRef = useRef(false);
+    // 停止轮询函数（取消按钮用）
+    const analyzeJobStopRef = useRef<(() => void) | null>(null);
     const [currentImage, setCurrentImage] = useState<string | null>(null);
     const { t, language } = useLanguage();
     const searchParams = useSearchParams();
@@ -41,22 +58,9 @@ function HomeContent() {
     // Input mode: "image" for photo upload, "text" for AI solve, "direct" for manual entry
     const [inputMode, setInputMode] = useState<"image" | "text" | "direct">("image");
 
-    // Cropper state
-    const [croppingImage, setCroppingImage] = useState<string | null>(null);
-    const [isCropperOpen, setIsCropperOpen] = useState(false);
-
     // Timeout Config
     const aiTimeout = config?.timeouts?.analyze || 180000;
     const safetyTimeout = aiTimeout + 10000;
-
-    // Cleanup Blob URL to prevent memory leak
-    useEffect(() => {
-        return () => {
-            if (croppingImage) {
-                URL.revokeObjectURL(croppingImage);
-            }
-        };
-    }, [croppingImage]);
 
     useEffect(() => {
         // Fetch notebooks for auto-selection
@@ -77,6 +81,48 @@ function HomeContent() {
             .catch(err => console.error("Failed to fetch config:", err));
     }, []);
 
+    // 页面恢复：只恢复本浏览器发起的任务（sessionStorage 记录 jobId）。
+    // 黑屏/误刷新不丢进度；不会捞到别的设备或旧会话的任务（共享账号场景关键）。
+    useEffect(() => {
+        const jobId = sessionStorage.getItem('analyzeJobId');
+        if (!jobId) return;
+        apiClient.get<any>(`/api/analyze/jobs/${jobId}?includePages=1`)
+            .then(async (job) => {
+                if (job.consumedAt) {
+                    sessionStorage.removeItem('analyzeJobId');
+                    return;
+                }
+                if (Date.now() - new Date(job.createdAt).getTime() > 30 * 60 * 1000) {
+                    sessionStorage.removeItem('analyzeJobId');
+                    return;
+                }
+                if (job.pages?.length) {
+                    setPendingPages(job.pages);
+                    setPageImages(job.pages);
+                    setCurrentImage(job.pages[0]);
+                }
+                if (job.status === 'pending' || job.status === 'running') {
+                    setAnalysisStep('analyzing');
+                    // 看门狗以任务创建时间为准（不是恢复时间），尸体任务不会无限转圈
+                    pollAnalyzeJob(job.id, new Date(job.createdAt).getTime());
+                } else if (job.status === 'done') {
+                    sessionStorage.removeItem('analyzeJobId');
+                    await apiClient.post(`/api/analyze/jobs/${job.id}/consume`, {}).catch(() => { });
+                    if (job.questions?.length) {
+                        handleAnalyzeResult(job.questions, Date.now());
+                    }
+                } else if (job.status === 'failed') {
+                    sessionStorage.removeItem('analyzeJobId');
+                    await apiClient.post(`/api/analyze/jobs/${job.id}/consume`, {}).catch(() => { });
+                    setAnalyzeError(mapAnalyzeError(job.error || ''));
+                }
+            })
+            .catch(() => {
+                sessionStorage.removeItem('analyzeJobId');
+            });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     // Simulate progress for smoother UX with timeout protection
     useEffect(() => {
         let interval: NodeJS.Timeout;
@@ -91,7 +137,9 @@ function HomeContent() {
             }, 500);
 
             // Safety timeout: auto-reset after configurable time to prevent stuck overlay
+            // 后台任务轮询期间不生效（服务端还在跑，遮罩消失会造成“已完成”的错觉）
             timeout = setTimeout(() => {
+                if (analyzeJobActiveRef.current) return;
                 console.warn('[Progress] Safety timeout triggered - resetting analysisStep');
                 setAnalysisStep('idle');
             }, safetyTimeout);
@@ -102,154 +150,180 @@ function HomeContent() {
         };
     }, [analysisStep, safetyTimeout]);
 
-    const onImageSelect = (file: File) => {
-        const imageUrl = URL.createObjectURL(file);
-        setCroppingImage(imageUrl);
-        setIsCropperOpen(true);
-    };
-
-    const handleCropComplete = async (croppedBlob: Blob) => {
-        setIsCropperOpen(false);
-        // Convert Blob to File
-        const file = new File([croppedBlob], "cropped-image.jpg", { type: "image/jpeg" });
-        handleAnalyze(file);
-    };
-
-    const handleAnalyze = async (file: File) => {
-        const startTime = Date.now();
-        frontendLogger.info('[HomeAnalyze]', 'Starting analysis flow', {
-            timeoutSettings: {
-                apiTimeout: aiTimeout,
-                safetyTimeout
-            }
-        });
-
+    const onImageSelect = async (file: File) => {
+        // 单张也直进自动管线（切边+增强全自动），不再拦路弹矩形裁剪框；
+        // 需要细裁/选题时点暂存条缩略图进纸张工作室。
         try {
-            frontendLogger.info('[HomeAnalyze]', 'Step 1/5: Compressing image');
-            setAnalysisStep('compressing');
-            const base64Image = await processImageFile(file);
-            setCurrentImage(base64Image);
-            frontendLogger.info('[HomeAnalyze]', 'Image compressed successfully', {
-                size: base64Image.length
-            });
-
-            frontendLogger.info('[HomeAnalyze]', 'Step 2/5: Calling API endpoint /api/analyze');
-            setAnalysisStep('analyzing');
-            const apiStartTime = Date.now();
-            const data = await apiClient.post<AnalyzeResponse>("/api/analyze", {
-                imageBase64: base64Image,
-                language: language,
-                subjectId: initialNotebookId || autoSelectedNotebookId || undefined
-            }, { timeout: aiTimeout }); // Use configured timeout
-            const apiDuration = Date.now() - apiStartTime;
-            frontendLogger.info('[HomeAnalyze]', 'API response received, validating data', {
-                apiDuration
-            });
-
-            // Validate response data
-            if (!data || typeof data !== 'object') {
-                frontendLogger.error('[HomeAnalyze]', 'Validation failed - invalid response data', {
-                    data
-                });
-                throw new Error('Invalid API response: data is null or not an object');
-            }
-            frontendLogger.info('[HomeAnalyze]', 'Response data validated successfully');
-
-            frontendLogger.info('[HomeAnalyze]', 'Step 3/5: Setting processing state and progress to 100%');
-            setAnalysisStep('processing');
-            setProgress(100);
-            frontendLogger.info('[HomeAnalyze]', 'Progress updated to 100%');
-
-            frontendLogger.info('[HomeAnalyze]', 'Step 4/5: Setting parsed data and auto-selecting notebook');
-            const dataSize = JSON.stringify(data).length;
-            // Auto-select notebook based on subject
-            if (data.subject) {
-                const matchedNotebook = notebooks.find(n =>
-                    n.name.includes(data.subject!) || data.subject!.includes(n.name)
-                );
-                if (matchedNotebook) {
-                    setAutoSelectedNotebookId(matchedNotebook.id);
-                    frontendLogger.info('[HomeAnalyze]', 'Auto-selected notebook', {
-                        notebook: matchedNotebook.name,
-                        subject: data.subject
-                    });
-                }
-            }
-            const setDataStart = Date.now();
-            setParsedData(data);
-            const setDataDuration = Date.now() - setDataStart;
-            frontendLogger.info('[HomeAnalyze]', 'Parsed data set successfully', {
-                dataSize,
-                setDataDuration
-            });
-
-            frontendLogger.info('[HomeAnalyze]', 'Step 5/5: Switching to review page');
-            const setStepStart = Date.now();
-            setStep("review");
-            const setStepDuration = Date.now() - setStepStart;
-            frontendLogger.info('[HomeAnalyze]', 'Step switched to review', {
-                setStepDuration
-            });
-            const totalDuration = Date.now() - startTime;
-            frontendLogger.info('[HomeAnalyze]', 'Analysis completed successfully', {
-                totalDuration
-            });
-        } catch (error: any) {
-            const errorDuration = Date.now() - startTime;
-            frontendLogger.error('[HomeError]', 'Analysis failed', {
-                errorDuration,
-                error: error.message || String(error)
-            });
-
-            // 安全的错误处理逻辑，防止在报错时二次报错
-            try {
-                let errorMessage = t.common?.messages?.analysisFailed || 'Analysis failed, please try again';
-
-                // ApiError 的结构：error.data.message 包含后端返回的错误类型
-                const backendErrorType = error?.data?.message;
-
-                if (backendErrorType && typeof backendErrorType === 'string') {
-                    // 检查是否是已知的 AI 错误类型
-                    if (t.errors && typeof t.errors === 'object' && backendErrorType in t.errors) {
-                        const mappedError = (t.errors as any)[backendErrorType];
-                        if (typeof mappedError === 'string') {
-                            errorMessage = mappedError;
-                            frontendLogger.info('[HomeError]', `Matched error type: ${backendErrorType}`, {
-                                errorMessage
-                            });
-                        }
-                    } else {
-                        // 使用后端返回的具体错误消息
-                        errorMessage = backendErrorType;
-                        frontendLogger.info('[HomeError]', 'Using backend error message', {
-                            errorMessage
-                        });
-                    }
-                } else if (error?.message) {
-                    // Fallback：检查 error.message（用于非 API 错误）
-                    if (error.message.includes('fetch') || error.message.includes('network')) {
-                        errorMessage = t.errors?.AI_CONNECTION_FAILED || '网络连接失败';
-                    } else if (typeof error.data === 'string') {
-                        frontendLogger.info('[HomeError]', 'Raw error data', {
-                            errorDataPreview: error.data.substring(0, 100)
-                        });
-                        errorMessage += ` (${error.status || 'Error'})`;
-                    }
-                }
-
-                alert(errorMessage);
-            } catch (innerError) {
-                frontendLogger.error('[HomeError]', 'Failed to process error message', {
-                    innerError: String(innerError)
-                });
-                alert('Analysis failed. Please try again.');
-            }
-        } finally {
-            // Always reset analysis state, even if setState throws
-            frontendLogger.info('[HomeAnalyze]', 'Finally: Resetting analysis state to idle');
-            setAnalysisStep('idle');
-            frontendLogger.info('[HomeAnalyze]', 'Analysis state reset complete');
+            await enhanceAndStage(file);
+        } catch (e) {
+            console.error(e);
+            alert(t.common?.messages?.analysisFailed || '图片处理失败');
         }
+    };
+
+    /**
+     * 统一入队管道：压缩 → 纸张增强（亮度/增白/锐化）→ 暂存；
+     * 后台懒加载 opencv 成功后自动尝试切边矫正，找到纸张轮廓就替换该页。
+     */
+    const enhanceAndStage = async (file: File): Promise<void> => {
+        const base64Image = await processImageFile(file);
+        const enhanced = await enhancePaperImage(base64Image);
+        setPendingPages((prev) => [...prev, enhanced]);
+        preloadOpenCV();
+        // 切边必须在增强前做（HSV 分割依赖纸张与背景的原始对比度），切完再重新增强
+        setRectifyingPages((prev) => new Set(prev).add(enhanced));
+        rectifyPaperImage(base64Image).then(async (rect) => {
+            if (rect === base64Image) return; // 没找到纸张轮廓，保持增强版
+            const reEnhanced = await enhancePaperImage(rect);
+            setPendingPages((prev) => prev.map((p) => (p === enhanced ? reEnhanced : p)));
+        }).catch(() => { /* 切边失败静默回退 */ })
+            .finally(() => setRectifyingPages((prev) => { const next = new Set(prev); next.delete(enhanced); return next; }));
+    };
+
+    /** 多选/多拖整页：逐张压缩后直接入暂存队列（不逐张进裁剪器） */
+    const onImagesSelect = async (files: File[]) => {
+        for (const file of files.slice(0, 10)) {
+            try {
+                await enhanceAndStage(file);
+            } catch (e) {
+                console.error(e);
+            }
+        }
+    };
+
+    /** 开始解析暂存的所有页（单页或多页） */
+    const startAnalysis = () => {
+        if (pendingPages.length === 0 || analysisStep !== 'idle') return;
+        setAnalyzeError(null);
+        handleAnalyzePages(pendingPages);
+    };
+
+    /** 把 AI 错误码映射为可读文案 */
+    const mapAnalyzeError = (msg: string): string => {
+        if (!msg) return t.common?.messages?.analysisFailed || 'AI 分析失败，请重试';
+        if (t.errors && typeof t.errors === 'object' && msg in t.errors) {
+            const mapped = (t.errors as any)[msg];
+            if (typeof mapped === 'string') return mapped;
+        }
+        if (msg.startsWith('AI_')) return t.errors?.AI_UNKNOWN_ERROR || msg;
+        return msg;
+    };
+
+    const handleAnalyzePages = async (pages: string[]) => {
+        const startTime = Date.now();
+        try {
+            frontendLogger.info('[HomeAnalyze]', 'Submitting background analyze job', { pages: pages.length });
+            setAnalysisStep('analyzing');
+            setCurrentImage(pages[0]);
+            setPageImages(pages);
+
+            // 后台任务模式：服务端执行 AI 分析，浏览器黑屏/切后台/断网都不中断
+            const { jobId } = await apiClient.post<{ jobId: string }>("/api/analyze/jobs", {
+                images: pages, // 多页一次调用，AI 可关联跨页题目
+                language: language,
+                subjectId: initialNotebookId || autoSelectedNotebookId || undefined,
+            });
+            frontendLogger.info('[HomeAnalyze]', 'Analyze job created', { jobId, pages: pages.length });
+            sessionStorage.setItem('analyzeJobId', jobId); // 供黑屏/刷新后恢复，且只恢复本会话的任务
+            pollAnalyzeJob(jobId, startTime);
+        } catch (error: any) {
+            frontendLogger.error('[HomeError]', 'Failed to create analyze job', { error: error?.message });
+            setAnalysisStep('idle');
+            setAnalyzeError(mapAnalyzeError(error?.data?.message || error?.message || ''));
+        }
+    };
+
+    /** 取消后台分析任务：停止轮询、取走标记、清会话记录；页图保留在暂存条可重试 */
+    const cancelAnalyzeJob = () => {
+        analyzeJobStopRef.current?.();
+        analyzeJobActiveRef.current = false;
+        const jobId = sessionStorage.getItem('analyzeJobId');
+        sessionStorage.removeItem('analyzeJobId');
+        if (jobId) apiClient.post(`/api/analyze/jobs/${jobId}/consume`, {}).catch(() => { });
+        setAnalysisStep('idle');
+    };
+
+    /** 轮询分析任务；单次失败（黑屏恢复等）下个周期自动重试；切回前台立即补查；超 15 分钟判定超时 */
+    const pollAnalyzeJob = (jobId: string, startTime: number) => {
+        analyzeJobActiveRef.current = true;
+        const stop = () => {
+            clearInterval(timer);
+            document.removeEventListener('visibilitychange', onVisible);
+            analyzeJobActiveRef.current = false;
+            analyzeJobStopRef.current = null;
+        };
+        const check = async () => {
+            try {
+                // 看门狗：任务超过 15 分钟未结束（AI 卡死/连接静默挂起），判定超时
+                if (Date.now() - startTime > 15 * 60 * 1000) {
+                    stop();
+                    sessionStorage.removeItem('analyzeJobId');
+                    apiClient.post(`/api/analyze/jobs/${jobId}/consume`, {}).catch(() => { });
+                    setAnalysisStep('idle');
+                    setAnalyzeError(t.errors?.AI_TIMEOUT_ERROR || 'AI 响应超时，请重试（页数多时可分批上传）');
+                    return;
+                }
+                const job = await apiClient.get<any>(`/api/analyze/jobs/${jobId}`);
+                if (job.status === 'done' && job.questions) {
+                    stop();
+                    sessionStorage.removeItem('analyzeJobId');
+                    apiClient.post(`/api/analyze/jobs/${jobId}/consume`, {}).catch(() => { });
+                    handleAnalyzeResult(job.questions, startTime);
+                } else if (job.status === 'failed') {
+                    stop();
+                    sessionStorage.removeItem('analyzeJobId');
+                    apiClient.post(`/api/analyze/jobs/${jobId}/consume`, {}).catch(() => { });
+                    setAnalysisStep('idle');
+                    setAnalyzeError(mapAnalyzeError(job.error || ''));
+                }
+            } catch (e) {
+                console.warn('[HomeAnalyze] poll failed, retrying', e);
+            }
+        };
+        // 后台时浏览器会冻结/节流 interval，切回前台立刻补查一次
+        const onVisible = () => {
+            if (document.visibilityState === 'visible') check();
+        };
+        document.addEventListener('visibilitychange', onVisible);
+        const timer = setInterval(check, 3000);
+        analyzeJobStopRef.current = stop;
+    };
+
+    /** 分析结果分流：多题 → 批量确认页；单题 → 单题校对页 */
+    const handleAnalyzeResult = (questions: ParsedQuestion[], startTime: number) => {
+        frontendLogger.info('[HomeAnalyze]', 'Job done, routing result', {
+            count: questions.length,
+            totalDuration: Date.now() - startTime,
+        });
+        // 路由是同步客户端工作，没有需要等待的“处理”——直接 idle 关掉遮罩，
+        // 否则 fixed 全屏的 processing 遮罩会一直盖住结果页，直到安全定时器兜底（用户白等一两分钟）
+        setAnalysisStep('idle');
+        setProgress(100);
+
+        // 按第一题学科自动匹配笔记本
+        const first = questions[0];
+        if (first?.subject) {
+            const matchedNotebook = notebooks.find(n =>
+                n.name.includes(first.subject!) || first.subject!.includes(n.name)
+            );
+            if (matchedNotebook) {
+                setAutoSelectedNotebookId(matchedNotebook.id);
+            }
+        }
+
+        if (questions.length > 1) {
+            setParsedQuestions(questions);
+            setStep("multi-review");
+            return;
+        }
+        if (questions.length === 1) {
+            setParsedData(questions[0]);
+            setStep("review");
+            return;
+        }
+        // 一道题都没识别出来
+        setAnalysisStep('idle');
+        setAnalyzeError(t.errors?.AI_RESPONSE_ERROR || 'AI 分析失败，请重试');
     };
 
     const handleSave = async (finalData: ParsedQuestion & { subjectId?: string }): Promise<void> => {
@@ -319,7 +393,8 @@ function HomeContent() {
                 subject: matchedNotebook?.name || undefined,
             }, { timeout: aiTimeout });
 
-            setAnalysisStep('processing');
+            // 同上：同步路由，直接关遮罩
+            setAnalysisStep('idle');
             setProgress(100);
 
             const parsed: ParsedQuestion = {
@@ -433,12 +508,29 @@ function HomeContent() {
         }
     };
 
+    /** 当前扫描实际使用的 AI 实例（整卷拆分/批改走专用实例，未配置时跟随活跃实例） */
+    const getScanModelName = (): string | undefined => {
+        if (!config) return undefined;
+        if (config.aiProvider === 'openai') {
+            const instances = config.openai?.instances || [];
+            const id = config.openai?.multiAnalyzeInstanceId || config.openai?.activeInstanceId;
+            const inst = instances.find((i) => i.id === id);
+            return inst ? `${inst.name} · ${inst.model}` : undefined;
+        }
+        if (config.aiProvider === 'azure') return `Azure · ${config.azure?.model || config.azure?.deploymentName || ''}`;
+        return `Gemini · ${config.gemini?.model || ''}`;
+    };
+
     return (
         <main className="min-h-screen bg-background">
             <ProgressFeedback
                 status={analysisStep}
                 progress={progress}
                 message={getProgressMessage()}
+                modelName={analysisStep === 'analyzing' && inputMode === 'image' ? getScanModelName() : undefined}
+                rotatingMessages={analysisStep === 'analyzing' && inputMode === 'image' ? (t.common.progress?.analyzingSteps as string[] | undefined) : undefined}
+                onCancel={analysisStep === 'analyzing' ? cancelAnalyzeJob : undefined}
+                cancelLabel={t.common?.cancel || '取消'}
             />
 
             <div className="container mx-auto p-4 space-y-8 pb-20">
@@ -448,7 +540,9 @@ function HomeContent() {
 
                     <div className="flex items-center gap-2 bg-card p-2 rounded-lg border shadow-sm shrink-0">
                         <BroadcastNotification />
-                        <SettingsDialog />
+                        <div className="eink-hide">
+                            <SettingsDialog />
+                        </div>
                         <Button
                             variant="ghost"
                             size="icon"
@@ -461,11 +555,19 @@ function HomeContent() {
                     </div>
                 </div>
 
+                <section className="handbook-hero">
+                    <div className="handbook-hero__eyebrow">A LITTLE PROGRESS, EVERY DAY</div>
+                    <h1>
+                        {language === 'zh' ? <>今天，也向<em>更好的自己</em>靠近一点。</> : <>A little closer to <em>your best self</em>, every day.</>}
+                    </h1>
+                    <p>{language === 'zh' ? '把每一道错题，都变成下一次得分的机会。' : 'Turn every mistake into another chance to improve.'}</p>
+                </section>
+
                 {/* Action Center */}
                 <div className={initialNotebookId ? "flex justify-center mb-6" : "grid grid-cols-2 md:grid-cols-4 gap-4"}>
                     <Button
                         size="lg"
-                        className={`h-auto py-4 text-base shadow-sm hover:shadow-md transition-all ${initialNotebookId ? "w-full max-w-md" : ""}`}
+                        className={`eink-hide h-auto py-4 text-base shadow-sm hover:shadow-md transition-all ${initialNotebookId ? "w-full max-w-md" : ""}`}
                         variant={step === "upload" ? "default" : "secondary"}
                         onClick={() => { setStep("upload"); setInputMode("image"); }}
                     >
@@ -490,7 +592,7 @@ function HomeContent() {
                                 </Button>
                             </Link>
 
-                            <Link href="/tags" className="w-full">
+                            <Link href="/tags" className="w-full eink-hide">
                                 <Button
                                     variant="outline"
                                     size="lg"
@@ -520,11 +622,11 @@ function HomeContent() {
                 </div>
 
                 {step === "upload" && (
-                    <div className="space-y-4">
+                    <div className="space-y-4 eink-hide">
                         {/* Input mode tabs */}
-                        <div className="flex gap-2 border-b">
+                        <div className="handbook-input-tabs flex gap-2 border-b">
                             <button
-                                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                                className={`handbook-input-tab flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
                                     inputMode === "image"
                                         ? "border-primary text-primary"
                                         : "border-transparent text-muted-foreground hover:text-foreground"
@@ -535,7 +637,7 @@ function HomeContent() {
                                 {t.app?.uploadImage || "拍照上传"}
                             </button>
                             <button
-                                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                                className={`handbook-input-tab flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
                                     inputMode === "text"
                                         ? "border-primary text-primary"
                                         : "border-transparent text-muted-foreground hover:text-foreground"
@@ -546,7 +648,7 @@ function HomeContent() {
                                 {t.app?.manualInput || "AI解题"}
                             </button>
                             <button
-                                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                                className={`handbook-input-tab flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
                                     inputMode === "direct"
                                         ? "border-primary text-primary"
                                         : "border-transparent text-muted-foreground hover:text-foreground"
@@ -559,7 +661,61 @@ function HomeContent() {
                         </div>
 
                         {inputMode === "image" ? (
-                            <UploadZone onImageSelect={onImageSelect} isAnalyzing={analysisStep !== 'idle'} />
+                            <>
+                                <UploadZone onImageSelect={onImageSelect} onImagesSelect={onImagesSelect} isAnalyzing={analysisStep !== 'idle'} />
+
+                                {/* 分析失败的内联错误条（不用 alert，黑屏/墨水屏友好） + 一键重试 */}
+                                {analyzeError && (
+                                    <div className="mt-4 p-3 border border-destructive/50 rounded-lg bg-destructive/10 text-sm flex items-center justify-between gap-3">
+                                        <span className="text-destructive">{analyzeError}</span>
+                                        <div className="flex gap-2 shrink-0">
+                                            <Button variant="outline" size="sm" onClick={() => setAnalyzeError(null)}>
+                                                {t.common?.cancel || "关闭"}
+                                            </Button>
+                                            <Button size="sm" onClick={startAnalysis} disabled={pendingPages.length === 0}>
+                                                {t.common?.retry || "重试"}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* 连续扫描暂存条：多页试卷逐页添加，最后一并解析 */}
+                                {pendingPages.length > 0 && (
+                                <div className="mt-4 p-3 border rounded-lg bg-muted/40 space-y-3">
+                                    <div className="flex items-center gap-3 flex-wrap">
+                                        {pendingPages.map((pg, i) => (
+                                            <div key={i} className="relative">
+                                                <img
+                                                    src={pg}
+                                                    alt={`第${i + 1}页`}
+                                                    className="h-20 rounded border cursor-pointer hover:border-primary"
+                                                    title={t.paperStudio?.editHint || "点开可切边/选题"}
+                                                    onClick={() => setStudioIndex(i)}
+                                                />
+                                                {rectifyingPages.has(pg) && (
+                                                    <div className="absolute inset-0 rounded bg-background/60 flex items-center justify-center pointer-events-none">
+                                                        <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                                                    </div>
+                                                )}
+                                                <button
+                                                    type="button"
+                                                    className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-destructive text-destructive-foreground text-xs leading-none"
+                                                    onClick={() => setPendingPages((prev) => prev.filter((_, idx) => idx !== i))}
+                                                >
+                                                    ×
+                                                </button>
+                                            </div>
+                                        ))}
+                                        <span className="text-xs text-muted-foreground">
+                                            {(t.app?.pagesStaged || "已添加 {count} 页，可继续拍照添加").replace("{count}", String(pendingPages.length))}
+                                        </span>
+                                    </div>
+                                    <Button onClick={startAnalysis} disabled={analysisStep !== 'idle'} className="w-full">
+                                        {(t.app?.startAnalysis || "开始解析（{count} 页）").replace("{count}", String(pendingPages.length))}
+                                    </Button>
+                                </div>
+                                )}
+                            </>
                         ) : inputMode === "text" ? (
                             <TextInputZone
                                 onSubmit={handleTextSubmit}
@@ -585,12 +741,15 @@ function HomeContent() {
                     </div>
                 )}
 
-                {croppingImage && (
-                    <ImageCropper
-                        imageSrc={croppingImage}
-                        open={isCropperOpen}
-                        onClose={() => setIsCropperOpen(false)}
-                        onCropComplete={handleCropComplete}
+                {studioIndex !== null && pendingPages[studioIndex] && (
+                    <PaperStudio
+                        imageSrc={pendingPages[studioIndex]}
+                        open={studioIndex !== null}
+                        onClose={() => setStudioIndex(null)}
+                        onApply={(processed) => {
+                            setPendingPages((prev) => prev.map((p, idx) => (idx === studioIndex ? processed : p)));
+                            setStudioIndex(null);
+                        }}
                     />
                 )}
 
@@ -602,6 +761,32 @@ function HomeContent() {
                         imagePreview={currentImage}
                         initialSubjectId={initialNotebookId || autoSelectedNotebookId || undefined}
                         aiTimeout={aiTimeout}
+                    />
+                )}
+
+                {step === "multi-review" && parsedQuestions.length > 0 && (
+                    <MultiQuestionReview
+                        questions={parsedQuestions}
+                        pageImages={pageImages.length > 0 ? pageImages : (currentImage ? [currentImage] : [])}
+                        defaultSubjectId={initialNotebookId || autoSelectedNotebookId || undefined}
+                        onCancel={() => {
+                            setStep("upload");
+                            setParsedQuestions([]);
+                            setCurrentImage(null);
+                            setPageImages([]);
+                            setPendingPages([]);
+                        }}
+                        onSaved={(count, subjectId) => {
+                            setStep("upload");
+                            setParsedQuestions([]);
+                            setCurrentImage(null);
+                            setPageImages([]);
+                            setPendingPages([]);
+                            alert((t.multiReview?.saved || "已保存 {count} 道错题！").replace("{count}", String(count)));
+                            if (subjectId) {
+                                router.push(`/notebooks/${subjectId}`);
+                            }
+                        }}
                     />
                 )}
 

@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, Suspense, useEffect } from "react";
+import { useState, Suspense, useEffect, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, RefreshCw, CheckCircle, Eye, Send, XCircle, ArrowLeft, House } from "lucide-react";
+import { Loader2, RefreshCw, CheckCircle, Eye, Send, XCircle, ArrowLeft, House, Printer } from "lucide-react";
 import { ParsedQuestion } from "@/lib/ai/types";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,6 +14,7 @@ import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { apiClient } from "@/lib/api-client";
 import { AppConfig } from "@/types/api";
 import { frontendLogger } from "@/lib/frontend-logger";
+import { useEinkMode } from "@/lib/use-eink";
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +23,7 @@ function PracticeContent() {
     const router = useRouter();
     const errorItemId = searchParams.get("id");
     const { t, language } = useLanguage();
+    const eink = useEinkMode();
 
     const [question, setQuestion] = useState<ParsedQuestion | null>(null);
     const [loading, setLoading] = useState(false);
@@ -45,49 +47,131 @@ function PracticeContent() {
             .catch(err => console.error(err));
     }, []);
 
+    const [currentJobId, setCurrentJobId] = useState<string | null>(null);
+    const [slowHint, setSlowHint] = useState(false);
+    const [latestDoneJob, setLatestDoneJob] = useState<{ id: string; createdAt: string; difficulty: string } | null>(null);
+    const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const pollStartRef = useRef<number>(0);
+
     const [difficulty, setDifficulty] = useState<"easy" | "medium" | "hard" | "harder">("medium");
 
     const [error, setError] = useState<string | null>(null);
+
+    const stopPolling = () => {
+        if (pollTimerRef.current) {
+            clearInterval(pollTimerRef.current);
+            pollTimerRef.current = null;
+        }
+    };
+
+    useEffect(() => () => stopPolling(), []);
+
+    const mapJobError = (msg: string): string => {
+        let errorMessage = t.practice.errors?.default || "Failed to generate";
+        if (msg.includes('AI_CONNECTION_FAILED')) {
+            errorMessage = t.errors?.aiConnectionFailed || errorMessage;
+        } else if (msg.includes('AI_RESPONSE_ERROR')) {
+            errorMessage = t.errors?.aiResponseError || errorMessage;
+        } else if (msg.includes('AI_AUTH_ERROR')) {
+            errorMessage = t.errors?.aiAuth || errorMessage;
+        } else if (msg.includes('AI_UNKNOWN_ERROR')) {
+            errorMessage = t.errors?.AI_UNKNOWN_ERROR || errorMessage;
+        }
+        return errorMessage;
+    };
+
+    const pollJob = (jobId: string) => {
+        stopPolling();
+        pollStartRef.current = Date.now();
+        pollTimerRef.current = setInterval(async () => {
+            try {
+                if (Date.now() - pollStartRef.current > 20000) {
+                    setSlowHint(true);
+                }
+                const job = await apiClient.get<any>(`/api/practice/jobs/${jobId}`);
+                if (job.status === "done" && job.result) {
+                    stopPolling();
+                    setQuestion(job.result);
+                    setLoading(false);
+                    setSlowHint(false);
+                    setLatestDoneJob(null);
+                } else if (job.status === "failed") {
+                    stopPolling();
+                    setError(mapJobError(job.error || ""));
+                    setLoading(false);
+                    setSlowHint(false);
+                }
+            } catch (e) {
+                // 单次轮询失败不中断，下个周期重试
+                console.error(e);
+            }
+        }, 2500);
+    };
+
+    // 页面加载时恢复：进行中的任务继续轮询；已出好的题提供一键加载
+    useEffect(() => {
+        if (!errorItemId) return;
+        apiClient.get<{ jobs: any[] }>(`/api/practice/jobs?errorItemId=${errorItemId}`)
+            .then(({ jobs }) => {
+                const active = jobs.find(j => j.status === "pending" || j.status === "running");
+                if (active) {
+                    setCurrentJobId(active.id);
+                    setLoading(true);
+                    pollJob(active.id);
+                    return;
+                }
+                const done = jobs.find(j => j.status === "done");
+                if (done) {
+                    setLatestDoneJob({ id: done.id, createdAt: done.completedAt || done.createdAt, difficulty: done.difficulty });
+                }
+            })
+            .catch(err => console.error(err));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [errorItemId]);
+
+    const loadJob = async (jobId: string) => {
+        try {
+            const job = await apiClient.get<any>(`/api/practice/jobs/${jobId}`);
+            if (job.status === "done" && job.result) {
+                setCurrentJobId(jobId);
+                setQuestion(job.result);
+                setLatestDoneJob(null);
+                setError(null);
+                setUserAnswer("");
+                setNotes("");
+                setIsSubmitted(false);
+                setIsCorrect(null);
+                setShowAnswer(false);
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    };
 
     const generateQuestion = async () => {
         if (!errorItemId) return;
 
         setLoading(true);
         setError(null);
+        setSlowHint(false);
         setUserAnswer("");
         setNotes("");
         setIsSubmitted(false);
         setIsCorrect(null);
         setShowAnswer(false);
         try {
-            const timeout = config?.timeouts?.analyze || 180000;
-            frontendLogger.info('[Practice]', 'Generating question', {
-                timeout
-            });
-            const data = await apiClient.post<ParsedQuestion>("/api/practice/generate", {
+            frontendLogger.info('[Practice]', 'Creating background job');
+            const { jobId } = await apiClient.post<{ jobId: string }>("/api/practice/generate", {
                 errorItemId,
                 language,
                 difficulty
-            }, { timeout });
-            setQuestion(data);
+            });
+            setCurrentJobId(jobId);
+            pollJob(jobId);
         } catch (error: any) {
             console.error(error);
             const msg = error.data?.message || "";
-
-            let errorMessage = t.practice.errors?.default || "Failed to generate";
-
-            if (msg.includes('AI_CONNECTION_FAILED')) {
-                errorMessage = t.errors?.aiConnectionFailed || errorMessage;
-            } else if (msg.includes('AI_RESPONSE_ERROR')) {
-                errorMessage = t.errors?.aiResponseError || errorMessage;
-            } else if (msg.includes('AI_AUTH_ERROR')) {
-                errorMessage = t.errors?.aiAuth || errorMessage;
-            } else if (msg.includes('AI_UNKNOWN_ERROR')) {
-                errorMessage = t.errors?.AI_UNKNOWN_ERROR || errorMessage;
-            }
-
-            setError(errorMessage);
-        } finally {
+            setError(mapJobError(msg));
             setLoading(false);
         }
     };
@@ -123,6 +207,25 @@ function PracticeContent() {
             difficulty,
             isCorrect: isMatch
         }).catch(err => console.error("Failed to save practice record:", err));
+    };
+
+    // E-ink 自评流：墨水屏键盘输入不便，改为看答案后自评对错，结果喂复习计划
+    const selfAssess = (correct: boolean) => {
+        if (!question) return;
+        setIsSubmitted(true);
+        setIsCorrect(correct);
+        setShowAnswer(true);
+        apiClient.post("/api/practice/record", {
+            subject: question.subject || "Unknown",
+            difficulty,
+            isCorrect: correct
+        }).catch(err => console.error("Failed to save practice record:", err));
+        if (errorItemId) {
+            apiClient.post("/api/review/complete", {
+                errorItemId,
+                isCorrect: correct
+            }).catch(err => console.error("Failed to complete review:", err));
+        }
     };
 
     if (!errorItemId) {
@@ -193,6 +296,22 @@ function PracticeContent() {
                                 </>
                             )}
                         </Button>
+
+                        {loading && slowHint && (
+                            <p className="text-sm text-muted-foreground">
+                                {t.practice.backgroundHint || "AI 正在后台出题，可以离开本页，出好后回来加载即可"}
+                            </p>
+                        )}
+                        {!loading && latestDoneJob && (
+                            <div className="text-sm text-muted-foreground flex items-center gap-2">
+                                <span>
+                                    {t.practice.latestReady || "有一题已出好"}（{new Date(latestDoneJob.createdAt).toLocaleString()}）
+                                </span>
+                                <Button variant="outline" size="sm" onClick={() => loadJob(latestDoneJob.id)}>
+                                    {t.practice.loadLatest || "加载"}
+                                </Button>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
@@ -215,6 +334,14 @@ function PracticeContent() {
                                         <option value="hard">{t.practice.difficulty?.hard || "Hard"}</option>
                                         <option value="harder">{t.practice.difficulty?.harder || "Challenge"}</option>
                                     </select>
+                                    {currentJobId && (
+                                        <Link href={`/practice/print?jobId=${currentJobId}`} target="_blank">
+                                            <Button variant="ghost" size="sm">
+                                                <Printer className="mr-2 h-4 w-4" />
+                                                {t.practice.printQuestion || "打印"}
+                                            </Button>
+                                        </Link>
+                                    )}
                                     <Button
                                         variant="ghost"
                                         size="sm"
@@ -242,7 +369,35 @@ function PracticeContent() {
                     </Card>
 
 
-                    {/* Answer Input Section */}
+                    {/* Answer Input Section（E-ink 模式用自评流替代键盘输入） */}
+                    {eink ? (
+                        <Card className="border-2">
+                            <CardContent className="pt-6 space-y-4">
+                                {!showAnswer ? (
+                                    <Button size="lg" className="w-full text-lg py-6" onClick={() => setShowAnswer(true)}>
+                                        <Eye className="mr-2 h-5 w-5" />
+                                        {t.practice.checkAnswer || "查看答案"}
+                                    </Button>
+                                ) : !isSubmitted ? (
+                                    <>
+                                        <p className="text-center text-muted-foreground">
+                                            {t.practice.selfAssessPrompt || "对照答案，自评一下："}
+                                        </p>
+                                        <div className="flex gap-4">
+                                            <Button size="lg" variant="outline" className="flex-1 text-lg py-6 border-2" onClick={() => selfAssess(false)}>
+                                                <XCircle className="mr-2 h-5 w-5" />
+                                                {t.practice.selfIncorrect || "答错了"}
+                                            </Button>
+                                            <Button size="lg" className="flex-1 text-lg py-6" onClick={() => selfAssess(true)}>
+                                                <CheckCircle className="mr-2 h-5 w-5" />
+                                                {t.practice.selfCorrect || "答对了"}
+                                            </Button>
+                                        </div>
+                                    </>
+                                ) : null}
+                            </CardContent>
+                        </Card>
+                    ) : (
                     <Card className="border-blue-200">
                         <CardHeader>
                             <CardTitle className="text-blue-600">
@@ -266,9 +421,10 @@ function PracticeContent() {
                             />
                         </CardContent>
                     </Card>
+                    )}
 
                     {/* Submit/Result Section */}
-                    {!isSubmitted ? (
+                    {!isSubmitted && !eink && (
                         <div className="flex justify-center">
                             <Button
                                 size="lg"
@@ -280,7 +436,8 @@ function PracticeContent() {
                                 {t.app.submitAnswer || "提交答案"}
                             </Button>
                         </div>
-                    ) : (
+                    )}
+                    {isSubmitted && (
                         <Card className={isCorrect ? "border-green-500 bg-green-50" : "border-red-500 bg-red-50"}>
                             <CardContent className="pt-6">
                                 <div className="flex items-center gap-3 mb-4">

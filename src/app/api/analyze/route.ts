@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAIService } from "@/lib/ai";
+import { getAIService, getAIServiceForMultiAnalyze } from "@/lib/ai";
 import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
 import { calculateGradeNumber, inferSubjectFromName } from "@/lib/knowledge-tags";
@@ -23,29 +23,39 @@ export async function POST(req: Request) {
 
     try {
         const body = await req.json();
-        let { imageBase64, mimeType, language, subjectId } = body;
+        let { imageBase64, images, mimeType, language, subjectId, multi, grade } = body;
+
+        // 多页支持：images 数组优先，单图 imageBase64 兼容；统一成数组处理
+        const rawImages: string[] = Array.isArray(images) && images.length > 0
+            ? images.slice(0, 10) // 最多 10 页
+            : (imageBase64 ? [imageBase64] : []);
 
         logger.debug({
-            imageLength: imageBase64?.length,
+            pageCount: rawImages.length,
             mimeType,
             language,
             subjectId
         }, 'Request received');
 
-        if (!imageBase64) {
+        if (rawImages.length === 0) {
             logger.warn('Missing image data');
             return badRequest("Missing image data");
         }
 
-        // Parse Data URL if present
-        if (imageBase64.startsWith('data:')) {
-            const matches = imageBase64.match(/^data:([^;]+);base64,(.+)$/);
-            if (matches) {
-                mimeType = matches[1];
-                imageBase64 = matches[2];
-                logger.debug({ mimeType, base64Length: imageBase64.length }, 'Parsed Data URL');
+        // 逐页解析 Data URL 前缀
+        const imageList: string[] = [];
+        for (const raw of rawImages) {
+            if (typeof raw === 'string' && raw.startsWith('data:')) {
+                const matches = raw.match(/^data:([^;]+);base64,(.+)$/);
+                if (matches) {
+                    mimeType = matches[1];
+                    imageList.push(matches[2]);
+                    continue;
+                }
             }
+            imageList.push(raw);
         }
+        imageBase64 = imageList[0]; // 单图模式兼容旧逻辑
 
         // 先获取用户年级信息，用于动态生成 AI prompt 中的标签列表
         let userGrade: 7 | 8 | 9 | 10 | 11 | 12 | null = null;
@@ -101,8 +111,21 @@ export async function POST(req: Request) {
         };
         const subjectChinese = subjectName ? subjectNameMapping[subjectName] : null;
 
-        logger.info({ userGrade, userGradeSemester, subject: subjectChinese }, 'Calling AI service for image analysis');
+        logger.info({ userGrade, userGradeSemester, subject: subjectChinese, multi: !!multi }, 'Calling AI service for image analysis');
         const aiService = getAIService();
+
+        // 多题模式（整卷拆分）/ 批改模式（已作答试卷）：一次调用识别所有题目，返回数组
+        // 两种模式都走专用实例（坐标定位/手写识别对模型要求高）
+        if (multi || grade) {
+            const multiService = getAIServiceForMultiAnalyze();
+            const imageInput = imageList.length > 1 ? imageList : imageList[0];
+            const questions = grade
+                ? await multiService.gradeExamMulti(imageInput, mimeType, language, userGrade, subjectChinese, userGradeSemester)
+                : await multiService.analyzeImageMulti(imageInput, mimeType, language, userGrade, subjectChinese, userGradeSemester);
+            logger.info({ count: questions.length, grade: !!grade, pages: imageList.length }, 'AI multi-question analysis successful');
+            return NextResponse.json({ questions });
+        }
+
         const analysisResult = await aiService.analyzeImage(imageBase64, mimeType, language, userGrade, subjectChinese, userGradeSemester);
 
         logger.debug({
@@ -132,6 +155,7 @@ export async function POST(req: Request) {
         if (error.message && (
             error.message === 'AI_CONNECTION_FAILED' ||
             error.message === 'AI_RESPONSE_ERROR' ||
+            error.message === 'AI_OUTPUT_TRUNCATED' ||
             error.message.includes('AI_AUTH_ERROR') ||
             error.message === 'AI_TIMEOUT_ERROR' ||
             error.message === 'AI_QUOTA_EXCEEDED' ||

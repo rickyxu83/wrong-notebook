@@ -2,12 +2,16 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
-import { getAIService } from "@/lib/ai";
 import { notFound, internalError, unauthorized } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
+import { createPracticeJob } from "@/lib/practice-jobs";
 
 const logger = createLogger('api:practice:generate');
 
+/**
+ * 异步举一反三：创建出题任务立即返回 jobId，
+ * AI 出题在后台执行，前端轮询 /api/practice/jobs/[id] 获取结果。
+ */
 export async function POST(req: Request) {
     const session = await getServerSession(authOptions);
 
@@ -18,40 +22,22 @@ export async function POST(req: Request) {
     try {
         const { errorItemId, language, difficulty } = await req.json();
 
-        const errorItemWithSubject = await prisma.errorItem.findUnique({
+        const errorItem = await prisma.errorItem.findUnique({
             where: { id: errorItemId },
-            include: { subject: true }
+            select: { id: true, userId: true },
         });
 
-        if (!errorItemWithSubject) {
+        if (!errorItem) {
             return notFound("Item not found");
         }
 
-        let tags: string[] = [];
-        try {
-            tags = JSON.parse(errorItemWithSubject.knowledgePoints || "[]");
-        } catch (e) {
-            tags = [];
-        }
+        const job = await createPracticeJob({ errorItemId, userId: errorItem.userId, difficulty, language });
+        logger.info({ jobId: job.id, errorItemId, difficulty }, 'Practice job created');
 
-        const aiService = getAIService();
-        const similarQuestion = await aiService.generateSimilarQuestion(
-            errorItemWithSubject.questionText || "",
-            tags,
-            language,
-            difficulty || 'medium',
-            errorItemWithSubject.gradeSemester
-        );
-
-        // Inject the subject from the database with type safety
-        const validSubjects = ["数学", "物理", "化学", "生物", "英语", "语文", "历史", "地理", "政治", "其他"] as const;
-        const subjectName = errorItemWithSubject.subject?.name || "其他";
-        similarQuestion.subject = validSubjects.includes(subjectName as any) ? subjectName as typeof validSubjects[number] : "其他";
-
-        return NextResponse.json(similarQuestion);
+        return NextResponse.json({ jobId: job.id, status: job.status }, { status: 202 });
     } catch (error) {
-        logger.error({ error }, 'Error generating practice');
-        const errorMessage = error instanceof Error ? error.message : "Failed to generate practice question";
+        logger.error({ error }, 'Error creating practice job');
+        const errorMessage = error instanceof Error ? error.message : "Failed to create practice job";
         return internalError(errorMessage);
     }
 }

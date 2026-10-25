@@ -148,6 +148,7 @@ export const DEFAULT_ANALYZE_TEMPLATE = `【角色与核心任务 (ROLE AND CORE
 
 <question_text>
 在此处填写题目的完整文本。使用 Markdown 格式。所有数学公式使用 LaTeX 符号（行内 $...$，块级 $$...$$）。
+注意：简单的数字与单位（如 0.4 s、340 m/s）直接用普通文本，不要包 LaTeX；只有真正的公式（分式、根号、上下标、方程）才用 LaTeX。
 
 【表格处理规则】
 如果图片中包含表格，必须完整转录表格内容，遵循以下原则：
@@ -212,6 +213,169 @@ export const DEFAULT_ANALYZE_TEMPLATE = `【角色与核心任务 (ROLE AND CORE
 {{grade_instruction}}
 {{provider_hints}}`;
 
+/**
+ * 多题识别模板（整卷/整页拆分导入）：识别图片中所有题目，每题一个 <question> 块。
+ * 块内标签与单题模板一致，复用同一套 parseResponse 逐块解析。
+ */
+export const DEFAULT_ANALYZE_MULTI_TEMPLATE = `【角色与核心任务 (ROLE AND CORE TASK)】
+你是一位世界顶尖的、经验丰富的、专业的跨学科考试分析专家（Interdisciplinary Exam Analysis Expert）。用户提供的是一张试卷或练习页的照片，上面可能有**一道题，也可能有多道题**。你的核心任务是：
+
+0. **先在心里默数图片中出现的所有题号**（如 8、9、10、11）。**特别注意图片顶部和底部容易被漏看的题目**。如果某道题在图片边缘被截断，仍然要识别它（标注残缺即可），不得当作不存在。
+   - 输入可能包含**多页图片**（按顺序对应第 1 页、第 2 页……）。页与页之间可能有关联：题目可能跨页（题干在上一页末尾、选项在下一页开头），也可能共用材料（表格/图形在上一页，小题在下一页）。**跨页题目请合并为一道题**，bbox 和 page 按题目主要部分所在页填写。
+1. **识别图片中的所有题目**（按题号或版面顺序）。
+2. **每道题独立分析**，严禁把多道题合并成一道，也严禁遗漏任何一道完整题目。
+3. 为每道题提供完整、高度结构化且专业的解答。
+
+{{language_instruction}}
+
+【核心输出要求 (OUTPUT REQUIREMENTS)】
+你的响应输出**必须严格遵循以下自定义标签格式**。**严禁**使用 JSON 或 Markdown 代码块。**严禁**对 LaTeX 公式中的反斜杠进行二次转义（如 "\\frac" 是错误的，必须是 "\frac"）。
+
+**每道题输出一个 <question>...</question> 块**，块内包含以下标签。即使图片上只有一道题，也只输出一个 <question> 块。块与块之间、所有块之外，不要输出任何开场白、结束语或额外文字。
+
+<question>
+<subject>
+在此处填写学科，必须是以下之一："数学", "物理", "化学", "生物", "英语", "语文", "历史", "地理", "政治", "其他"。
+</subject>
+
+<knowledge_points>
+在此处填写本题知识点，使用逗号分隔，例如：知识点1, 知识点2, 知识点3
+</knowledge_points>
+
+<requires_image>
+判断本题是否需要依赖图片才能正确解答。如果题目包含几何图形、函数图像、实验装置图、电路图等必须看图才能理解的内容，填写 true；如果只需要文字描述即可理解，填写 false。
+</requires_image>
+
+<wrong_answer_text>
+如果图片中本题包含学生已经写出的错误解答、错误步骤、草稿或错误答案，请尽量按原样摘录；如果没有看到学生错误解答，请留空。
+</wrong_answer_text>
+
+<mistake_status>
+填写以下值之一：wrong_attempt（本题有错误解答或错误步骤）、not_attempted（没有错误解答，像是完全不会做或未作答）、unknown（无法判断）。
+</mistake_status>
+
+<mistake_analysis>
+如果本题包含错误解答，请分析错误可能发生在哪一步、为什么错、导致了什么后果；如果没有错误解答，请留空。
+</mistake_analysis>
+
+<bbox>
+本题在整张图片中的包围盒，格式：ymin,xmin,ymax,xmax（0-1000 归一化整数，原点为图片左上角，y 轴向下，x 轴向右）。请尽量紧贴本题边界（含本题的配图、表格），上边界对齐题号所在行，不要包含相邻题目的内容。多页输入时坐标基于本题所在页。
+</bbox>
+
+<page>
+本题所在页码（从 1 开始）。只有一页时填 1。
+</page>
+
+<question_text>
+在此处填写本题的完整文本（保留原题号，如“8.”）。使用 Markdown 格式。所有数学公式使用 LaTeX 符号（行内 $...$，块级 $$...$$）。如果本题包含表格或子问题，必须完整转录。注意：简单的数字与单位（如 0.4 s、340 m/s）直接用普通文本，不要包 LaTeX；只有真正的公式（分式、根号、上下标、方程）才用 LaTeX。
+</question_text>
+
+<answer_text>
+在此处填写本题正确答案。使用 Markdown 和 LaTeX 符号。
+</answer_text>
+
+<analysis>
+在此处填写本题的详细步骤解析。
+* 必须使用简体中文。
+* **直接使用标准的 LaTeX 符号**（如 $\frac{1}{2}$），**不要**进行 JSON 转义。
+</analysis>
+</question>
+
+【知识点标签列表（KNOWLEDGE POINT LIST）】
+{{knowledge_points_list}}
+
+【标签使用规则 (TAG RULES)】
+- 标签必须与题目实际考查的知识点精准匹配。
+- 每题最多 5 个标签。
+
+【!!! 关键格式与内容约束 (CRITICAL RULES) !!!】
+1. **逐题独立**：每道题一个 <question> 块，不得合并、不得遗漏；若某道题残缺无法辨认，跳过该题并在剩余题目中保持题号原样。
+2. **bbox 必填**：每题必须给出 <bbox>，坐标基准为输入图片本身。
+2. **纯文本**：内容作为纯文本处理，**不要转义反斜杠**。
+3. **禁止图片**：严禁包含任何图片链接或 markdown 图片语法。
+
+{{grade_instruction}}
+{{provider_hints}}`;
+
+/**
+ * 批改模板（已作答试卷）：识别所有题目 + 转录学生手写作答 + 逐题判定对错。
+ * 块内标签与多题模板一致，额外增加 <student_answer> 与 <is_correct>。
+ * 专用实例（如 Kimi）调用，坐标定位与手写识别都要求强模型。
+ */
+export const DEFAULT_GRADE_TEMPLATE = `【角色与核心任务 (ROLE AND CORE TASK)】
+你是一位世界顶尖的、经验丰富的、专业的跨学科阅卷老师。用户提供的是一张或多页**已经由学生作答**的试卷照片。你的核心任务是：
+
+0. **先在心里默数图片中出现的所有题号**（如 8、9、10、11）。**特别注意图片顶部和底部容易被漏看的题目**。如果某道题在图片边缘被截断，仍然要识别它（标注残缺即可），不得当作不存在。
+   - 输入可能包含**多页图片**（按顺序对应第 1 页、第 2 页……）。页与页之间可能有关联：题目可能跨页（题干在上一页末尾、选项在下一页开头），也可能共用材料（表格/图形在上一页，小题在下一页）。**跨页题目请合并为一道题**，bbox 和 page 按题目主要部分所在页填写。
+1. **识别图片中的所有题目**（按题号或版面顺序），每道题独立分析，严禁合并或遗漏。
+2. **转录学生的手写作答**：包括选择题勾选/填写的选项、填空题写的内容、解答题的步骤、草稿痕迹。
+3. **逐题批改**：对照正确答案判断学生作答是否正确。
+4. 为每道题提供正确答案与解析（学生答对的题可以简略，答错的题必须详细）。
+
+{{language_instruction}}
+
+【核心输出要求 (OUTPUT REQUIREMENTS)】
+你的响应输出**必须严格遵循以下自定义标签格式**。**严禁**使用 JSON 或 Markdown 代码块。**严禁**对 LaTeX 公式中的反斜杠进行二次转义（如 "\\frac" 是错误的，必须是 "\frac"）。
+
+**每道题输出一个 <question>...</question> 块**，块内包含以下标签。即使图片上只有一道题，也只输出一个 <question> 块。块与块之间、所有块之外，不要输出任何开场白、结束语或额外文字。
+
+<question>
+<subject>
+在此处填写学科，必须是以下之一："数学", "物理", "化学", "生物", "英语", "语文", "历史", "地理", "政治", "其他"。
+</subject>
+
+<knowledge_points>
+在此处填写本题知识点，使用逗号分隔，例如：知识点1, 知识点2, 知识点3
+</knowledge_points>
+
+<bbox>
+本题在整张图片中的包围盒，格式：ymin,xmin,ymax,xmax（0-1000 归一化整数，原点为图片左上角，y 轴向下，x 轴向右）。请尽量紧贴本题边界（含本题的配图、表格和学生作答笔迹），上边界对齐题号所在行，不要包含相邻题目的内容。多页输入时坐标基于本题所在页。
+</bbox>
+
+<page>
+本题所在页码（从 1 开始）。只有一页时填 1。
+</page>
+
+<question_text>
+在此处填写本题的完整文本（保留原题号，如“8.”）。使用 Markdown 格式。所有数学公式使用 LaTeX 符号（行内 $...$，块级 $$...$$）。如果本题包含表格或子问题，必须完整转录。注意：简单的数字与单位（如 0.4 s、340 m/s）直接用普通文本，不要包 LaTeX；只有真正的公式（分式、根号、上下标、方程）才用 LaTeX。
+</question_text>
+
+<student_answer>
+按原样转录学生在本题的手写作答（选择题写选项字母，填空题写填写的内容，解答题写主要步骤）。学生未作答则留空。
+</student_answer>
+
+<is_correct>
+判定学生作答是否正确，填写以下值之一：true（答对或基本正确）、false（答错、步骤错误或答案错误）、unknown（学生未作答或无法辨认）。
+</is_correct>
+
+<answer_text>
+在此处填写本题正确答案。使用 Markdown 和 LaTeX 符号。
+</answer_text>
+
+<analysis>
+在此处填写本题的详细步骤解析。学生答错的题必须指出错在哪一步、为什么错；学生答对的题可以简略。
+* 必须使用简体中文。
+* **直接使用标准的 LaTeX 符号**（如 $\frac{1}{2}$），**不要**进行 JSON 转义。
+</analysis>
+</question>
+
+【知识点标签列表（KNOWLEDGE POINT LIST）】
+{{knowledge_points_list}}
+
+【标签使用规则 (TAG RULES)】
+- 标签必须与题目实际考查的知识点精准匹配。
+- 每题最多 5 个标签。
+
+【!!! 关键格式与内容约束 (CRITICAL RULES) !!!】
+1. **逐题独立**：每道题一个 <question> 块，不得合并、不得遗漏；若某道题残缺无法辨认，跳过该题并在剩余题目中保持题号原样。
+2. **bbox 必填**：每题必须给出 <bbox>，坐标基准为输入图片本身。
+3. **批改公正**：学生答案与标准答案形式不同但等价（如 0.5 与 1/2、x=2 与 2）应判 true；拿不准判 unknown 并说明。
+4. **纯文本**：内容作为纯文本处理，**不要转义反斜杠**。
+5. **禁止图片**：严禁包含任何图片链接或 markdown 图片语法。
+
+{{grade_instruction}}
+{{provider_hints}}`;
+
 export const DEFAULT_SIMILAR_TEMPLATE = `你是一位资深的K12教育题目生成专家，具备跨学科的题目创作能力。你的核心任务是**根据以下原题和知识点，举一反三生成高质量教学题目**，帮助学生巩固知识并拓展解题思路。
 ### 角色定义
 1. **学科全能专家**  
@@ -240,6 +404,8 @@ export const DEFAULT_SIMILAR_TEMPLATE = `你是一位资深的K12教育题目生
      ✓ 保持解题逻辑一致性  
      ✓ 答案唯一且可验证  
      ✓ 无知识性错误
+     ✓ **保持原题题型不变**
+     ✓ **图形可依赖**：依赖图形的题目必须沿用原题图形结构
 ### 输出规范
 你的响应输出**必须严格遵循以下自定义标签格式**。**严禁**使用 JSON 或 Markdown 代码块。**严禁**返回 \`\`\`json ... \`\`\`。
 
@@ -247,10 +413,15 @@ export const DEFAULT_SIMILAR_TEMPLATE = `你是一位资深的K12教育题目生
 
 <question_text>
 在此处填写新生成的题目文本。包含选项（如果是选择题）。
+【表格规则】如果题目包含数据表格，**必须**使用标准 Markdown 表格语法，且**必须包含表头分隔行**，例如：
+| 次数 | 弦长 L/m | 频率 f/Hz |
+|------|----------|-----------|
+| 1    | 0.50     | 300       |
+缺少分隔行的“伪表格”（如直接用 次数 | 弦长 | 频率 换行罗列）是**禁止**的。
 </question_text>
 
 <answer_text>
-在此处填写新题目的正确答案。
+在此处填写新题目的正确答案。如果答案包含表格，遵循上述【表格规则】。
 </answer_text>
 
 <analysis>
@@ -259,8 +430,19 @@ export const DEFAULT_SIMILAR_TEMPLATE = `你是一位资深的K12教育题目生
 * **直接使用标准的 LaTeX 符号**（如 $\frac{1}{2}$），**不要**进行 JSON 转义。
 </analysis>
 
+<requires_image>
+新题是否依赖图形才能作答，只填 true 或 false。
+依赖图形（几何图形、受力图、电路图、坐标系、函数图像、实验装置图等）填 true，系统会附上原题图片；不依赖图形填 false。
+</requires_image>
+
 ###关键格式与内容约束 (CRITICAL RULES) !!!
 1. **纯文本**：内容作为纯文本处理，**不要转义反斜杠**。
+2. **题型不变（禁止变式改题型）**：新题目**必须**与原题保持相同题型。原题是填空题时，新题**必须**是填空题，且每个填空处**必须**用连续下划线 ____（至少 4 个）表示待填横线，**严禁**改写为选择题或改用 （ ） 代替横线；原题是选择题时，新题**必须**是选择题并给出完整选项；其他题型同理。
+3. **图形一致性（最关键）**：
+   - 若新题依赖图形（几何图形、受力图、电路图、坐标系、函数图像、实验装置图等），**必须沿用原题的图形结构**（同图不同数、同图不同条件），并在题干中使用“如图”等表述；系统会自动在原题图片旁展示供学生参考。
+   - **严禁**自行发明原题中不存在的图形，也不要描述原题图中不存在的细节。
+   - 若新题不依赖图形，**严禁**出现“如图/图中/下图/上图/如图所示”等任何指代不存在图片的表述，必须把全部条件写成完整文字。
+4. **requires_image 必填**：依赖图形时填 true，不依赖时填 false；填 true 的题目必须真的用得上原题图形。
 
 {{grade_instruction}}
 {{provider_hints}}`;
@@ -313,6 +495,47 @@ export function getMathTagsForGrade(
  * @param options - Optional customizations
  */
 export function generateAnalyzePrompt(
+  language: 'zh' | 'en',
+  grade?: 7 | 8 | 9 | 10 | 11 | 12 | null,
+  subject?: string | null,
+  options?: PromptOptions,
+  gradeSemester?: string | null
+): string {
+  const template = options?.customTemplate || DEFAULT_ANALYZE_TEMPLATE;
+  return buildAnalyzePromptWithTemplate(template, language, grade, subject, options, gradeSemester);
+}
+
+/**
+ * 多题识别 prompt（整卷拆分导入）。
+ * 注意：始终使用内置多题模板，忽略用户自定义分析模板——自定义模板没有 <question> 块约定，无法被多题解析器拆分。
+ */
+export function generateAnalyzeMultiPrompt(
+  language: 'zh' | 'en',
+  grade?: 7 | 8 | 9 | 10 | 11 | 12 | null,
+  subject?: string | null,
+  options?: PromptOptions,
+  gradeSemester?: string | null
+): string {
+  return buildAnalyzePromptWithTemplate(DEFAULT_ANALYZE_MULTI_TEMPLATE, language, grade, subject, options, gradeSemester);
+}
+
+/**
+ * 批改 prompt（已作答试卷）：识别全部题目 + 转录学生作答 + 判定对错。
+ * 同样始终使用内置模板（<question> 块约定）。
+ */
+export function generateGradePrompt(
+  language: 'zh' | 'en',
+  grade?: 7 | 8 | 9 | 10 | 11 | 12 | null,
+  subject?: string | null,
+  options?: PromptOptions,
+  gradeSemester?: string | null
+): string {
+  return buildAnalyzePromptWithTemplate(DEFAULT_GRADE_TEMPLATE, language, grade, subject, options, gradeSemester);
+}
+
+/** 单题/多题分析 prompt 的共享构建逻辑（标签预取、语言/年级指令、变量替换） */
+function buildAnalyzePromptWithTemplate(
+  template: string,
   language: 'zh' | 'en',
   grade?: 7 | 8 | 9 | 10 | 11 | 12 | null,
   subject?: string | null,
@@ -399,8 +622,6 @@ ${biologyTagsString}
 **英语标签 (English Tags):**
 ${englishTagsString}`;
   }
-
-  const template = options?.customTemplate || DEFAULT_ANALYZE_TEMPLATE;
 
   return replaceVariables(template, {
     language_instruction: langInstruction,

@@ -29,6 +29,8 @@ model User {
   subjects   Subject[]
   practiceRecords PracticeRecord[]
   customTags KnowledgeTag[] // User's custom tags
+  practicePapers PracticePaper[]
+  analyzeJobs AnalyzeJob[]
 }
 
 // 统一知识点标签表 (支持无限层级)
@@ -114,6 +116,7 @@ model ErrorItem {
   updatedAt        DateTime @updatedAt
 
   reviewSchedules ReviewSchedule[]
+  practiceJobs    PracticeJob[]
 }
 
 model ReviewSchedule {
@@ -126,6 +129,73 @@ model ReviewSchedule {
   isCorrect    Boolean? // Result of the review
   
   createdAt    DateTime @default(now())
+}
+
+// 举一反三异步出题任务
+model PracticeJob {
+  id          String    @id @default(cuid())
+  errorItemId String
+  errorItem   ErrorItem @relation(fields: [errorItemId], references: [id], onDelete: Cascade)
+  userId      String
+
+  // 批量出卷：属于某张试卷时关联，单题出题为 null
+  paperId    String?
+  paper      PracticePaper? @relation(fields: [paperId], references: [id], onDelete: Cascade)
+  orderIndex Int?           // 题目在试卷中的顺序
+
+  difficulty String   @default("medium")
+  language   String   @default("zh")
+  status     String   @default("pending") // pending, running, done, failed
+  resultJson String?  // 出题结果 JSON
+  error      String?
+
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  @@index([errorItemId])
+  @@index([userId, status])
+  @@index([paperId])
+}
+
+// 试卷扫描分析任务（多页/批改）：服务端后台执行，浏览器黑屏/切后台不影响
+model AnalyzeJob {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  status    String    @default("pending") // pending, running, done, failed
+  mode      String    @default("grade")   // grade = 批改能力分析
+  language  String    @default("zh")
+  subjectId String?
+
+  pagesJson  String   // 页图 dataURL 数组 JSON（大字段）
+  resultJson String?  // questions 数组 JSON
+  error      String?
+
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+  consumedAt  DateTime? // 前端已取走结果（防止重复弹出）
+
+  @@index([userId, status])
+  @@index([userId, createdAt])
+}
+
+// 举一反三批量试卷：一张试卷 = 每道错题各出一道变式题
+model PracticePaper {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  difficulty String @default("medium")
+  language   String @default("zh")
+  status     String @default("running") // running, done, partial, failed
+
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  jobs PracticeJob[]
+
+  @@index([userId, createdAt])
 }
 
 model PracticeRecord {

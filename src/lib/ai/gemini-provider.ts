@@ -1,11 +1,12 @@
 import { GoogleGenAI } from "@google/genai";
 import { AIService, ParsedQuestion, DifficultyLevel, AIConfig, ReanswerQuestionResult, GeogebraAnalysisResult } from "./types";
-import { generateAnalyzePrompt, generateSimilarQuestionPrompt, generateGeogebraPrompt } from './prompts';
+import { generateAnalyzePrompt, generateAnalyzeMultiPrompt, generateGradePrompt, generateSimilarQuestionPrompt, generateGeogebraPrompt } from './prompts';
 import { safeParseParsedQuestion } from './schema';
 import { getAppConfig } from '../config';
 import { getMathTagsFromDB, getTagsFromDB } from './tag-service';
 import { createLogger } from '../logger';
 import { normalizeMistakeStatusForSave } from '../mistake-status';
+import { parseBbox } from './bbox';
 
 const logger = createLogger('ai:gemini');
 
@@ -107,7 +108,7 @@ export class GeminiProvider implements AIService {
         const subjectRaw = this.extractTag(text, "subject");
         const knowledgePointsRaw = this.extractTag(text, "knowledge_points");
         const requiresImageRaw = this.extractTag(text, "requires_image");
-        const wrongAnswerText = this.extractTag(text, "wrong_answer_text") || "";
+        const wrongAnswerText = this.extractTag(text, "wrong_answer_text") || this.extractTag(text, "student_answer") || ""; // student_answer: 批改模式转录
         const mistakeAnalysis = this.extractTag(text, "mistake_analysis") || "";
         const mistakeStatusRaw = this.extractTag(text, "mistake_status");
 
@@ -134,6 +135,18 @@ export class GeminiProvider implements AIService {
         const requiresImage = requiresImageRaw?.toLowerCase().trim() === 'true';
         const mistakeStatus = normalizeMistakeStatusForSave(mistakeStatusRaw, wrongAnswerText);
 
+        // 整卷拆分时的题目包围盒（仅多题模式输出此标签）
+        const bbox = parseBbox(this.extractTag(text, "bbox"));
+
+        // 批改模式：学生作答对错判定
+        const isCorrectRaw = this.extractTag(text, "is_correct")?.toLowerCase().trim();
+        const isCorrect = isCorrectRaw === 'true' ? true : isCorrectRaw === 'false' ? false : null;
+
+        // 多页输入时的页码（从 1 开始）
+        const pageRaw = this.extractTag(text, "page");
+        const pageNum = pageRaw ? parseInt(pageRaw.trim(), 10) : NaN;
+        const page = Number.isInteger(pageNum) && pageNum >= 1 ? pageNum : undefined;
+
         // Construct Result
         const result: ParsedQuestion = {
             questionText,
@@ -144,7 +157,10 @@ export class GeminiProvider implements AIService {
             mistakeStatus,
             subject,
             knowledgePoints,
-            requiresImage
+            requiresImage,
+            ...(bbox ? { bbox } : {}),
+            ...(isCorrect !== null ? { isCorrect } : {}),
+            ...(page ? { page } : {}),
         };
 
         // Final Schema Validation
@@ -158,7 +174,42 @@ export class GeminiProvider implements AIService {
         }
     }
 
+    /** 多题解析：按 <question> 块拆分，逐块走单题解析；无块时回退整段单题解析 */
+    private parseResponseMulti(text: string): ParsedQuestion[] {
+        const blocks = text.split(/<question>/i).slice(1).map((b) => b.split(/<\/question>/i)[0]);
+        if (blocks.length === 0) {
+            logger.warn('Multi-parse: no <question> blocks found, falling back to single-question parse');
+            return [this.parseResponse(text)];
+        }
+        const results: ParsedQuestion[] = [];
+        for (const block of blocks) {
+            try {
+                results.push(this.parseResponse(block));
+            } catch (e) {
+                logger.warn({ error: e instanceof Error ? e.message : String(e) }, 'Multi-parse: skipping invalid question block');
+            }
+        }
+        if (results.length === 0) {
+            throw new Error("AI_RESPONSE_ERROR: No valid question blocks in multi-question response");
+        }
+        logger.info({ count: results.length }, 'Multi-parse completed');
+        return results;
+    }
+
     async analyzeImage(imageBase64: string, mimeType: string = "image/jpeg", language: 'zh' | 'en' = 'zh', grade?: 7 | 8 | 9 | 10 | 11 | 12 | null, subject?: string | null, gradeSemester?: string | null): Promise<ParsedQuestion> {
+        return this.analyzeImageInternal(imageBase64, mimeType, language, grade, subject, gradeSemester, 'single') as Promise<ParsedQuestion>;
+    }
+
+    async analyzeImageMulti(imageBase64: string, mimeType: string = "image/jpeg", language: 'zh' | 'en' = 'zh', grade?: 7 | 8 | 9 | 10 | 11 | 12 | null, subject?: string | null, gradeSemester?: string | null): Promise<ParsedQuestion[]> {
+        return this.analyzeImageInternal(imageBase64, mimeType, language, grade, subject, gradeSemester, 'multi') as Promise<ParsedQuestion[]>;
+    }
+
+    async gradeExamMulti(imageBase64: string, mimeType: string = "image/jpeg", language: 'zh' | 'en' = 'zh', grade?: 7 | 8 | 9 | 10 | 11 | 12 | null, subject?: string | null, gradeSemester?: string | null): Promise<ParsedQuestion[]> {
+        return this.analyzeImageInternal(imageBase64, mimeType, language, grade, subject, gradeSemester, 'grade') as Promise<ParsedQuestion[]>;
+    }
+
+    private async analyzeImageInternal(imageBase64: string | string[], mimeType: string = "image/jpeg", language: 'zh' | 'en' = 'zh', grade?: 7 | 8 | 9 | 10 | 11 | 12 | null, subject?: string | null, gradeSemester?: string | null, mode: 'single' | 'multi' | 'grade' = 'single'): Promise<ParsedQuestion | ParsedQuestion[]> {
+        const imageList = Array.isArray(imageBase64) ? imageBase64 : [imageBase64];
         const config = getAppConfig();
 
         // 从数据库获取各学科标签
@@ -168,7 +219,7 @@ export class GeminiProvider implements AIService {
         const prefetchedBiologyTags = (subject === '生物' || !subject) ? await getTagsFromDB('biology') : [];
         const prefetchedEnglishTags = (subject === '英语' || !subject) ? await getTagsFromDB('english') : [];
 
-        const prompt = generateAnalyzePrompt(language, grade, subject, {
+        const prompt = (mode === 'grade' ? generateGradePrompt : mode === 'multi' ? generateAnalyzeMultiPrompt : generateAnalyzePrompt)(language, grade, subject, {
             customTemplate: config.prompts?.analyze,
             prefetchedMathTags,
             prefetchedPhysicsTags,
@@ -196,12 +247,9 @@ export class GeminiProvider implements AIService {
                     {
                         text: prompt
                     },
-                    {
-                        inlineData: {
-                            data: `[...${imageBase64.length} bytes base64 data...]`,
-                            mimeType: mimeType
-                        }
-                    }
+                    ...imageList.map((b64) => ({
+                        inlineData: { data: `[...${b64.length} bytes...]`, mimeType: mimeType }
+                    }))
                 ]
             };
 
@@ -213,12 +261,9 @@ export class GeminiProvider implements AIService {
                     {
                         text: prompt
                     },
-                    {
-                        inlineData: {
-                            data: imageBase64,
-                            mimeType: mimeType
-                        }
-                    }
+                    ...imageList.map((b64) => ({
+                        inlineData: { data: b64, mimeType: mimeType }
+                    }))
                 ]
             }));
 
@@ -231,7 +276,7 @@ export class GeminiProvider implements AIService {
             logger.box('🤖 AI Raw Response', text);
 
             if (!text) throw new Error("Empty response from AI");
-            const parsedResult = this.parseResponse(text);
+            const parsedResult = mode === 'single' ? this.parseResponse(text) : this.parseResponseMulti(text);
 
             logger.box('✅ Parsed & Validated Result', JSON.stringify(parsedResult, null, 2));
 
@@ -333,7 +378,7 @@ export class GeminiProvider implements AIService {
             const analysis = this.extractTag(text, "analysis") || "";
             const knowledgePointsRaw = this.extractTag(text, "knowledge_points") || "";
             const knowledgePointsParsed = knowledgePointsRaw.split(/[,，\n]/).map(k => k.trim()).filter(k => k.length > 0);
-            const wrongAnswerText = this.extractTag(text, "wrong_answer_text") || "";
+            const wrongAnswerText = this.extractTag(text, "wrong_answer_text") || this.extractTag(text, "student_answer") || ""; // student_answer: 批改模式转录
             const mistakeAnalysis = this.extractTag(text, "mistake_analysis") || "";
             const mistakeStatus = normalizeMistakeStatusForSave(
                 this.extractTag(text, "mistake_status"),

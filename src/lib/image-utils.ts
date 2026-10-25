@@ -98,3 +98,237 @@ export async function processImageFile(file: File): Promise<string> {
         });
     }
 }
+
+/* ==================== 整卷拆分：按题裁切原图 ==================== */
+
+/**
+ * 计算每行墨迹占比（0-1）。
+ * 墨迹判定：深色像素（印刷/手写黑蓝字）或偏红像素（红笔批改）。
+ */
+export function computeRowInkProfile(data: Uint8ClampedArray, width: number, height: number): number[] {
+    const profile = new Array<number>(height).fill(0);
+    for (let y = 0; y < height; y++) {
+        let ink = 0;
+        const rowStart = y * width * 4;
+        for (let x = 0; x < width; x++) {
+            const i = rowStart + x * 4;
+            const r = data[i], g = data[i + 1], b = data[i + 2];
+            const dark = r < 190 && g < 190 && b < 190;
+            const red = r > 120 && r > g + 30 && r > b + 30;
+            if (dark || red) ink++;
+        }
+        profile[y] = ink / width;
+    }
+    return profile;
+}
+
+/**
+ * 在 hintIdx 附近 ±windowPx 内找最佳空白分隔带（连续低墨迹行）的中心。
+ * 找不到合格空白带返回 null（调用方回退到 hint 位置）。
+ */
+export function findWhitespaceBoundary(
+    profile: number[],
+    hintIdx: number,
+    windowPx: number,
+    minRunPx: number = 6,
+    inkThreshold: number = 0.01
+): number | null {
+    const lo = Math.max(0, Math.round(hintIdx - windowPx));
+    const hi = Math.min(profile.length - 1, Math.round(hintIdx + windowPx));
+
+    let bestStart = -1, bestLen = 0, runStart = -1, runLen = 0;
+    for (let y = lo; y <= hi; y++) {
+        if (profile[y] < inkThreshold) {
+            if (runStart < 0) runStart = y;
+            runLen++;
+            if (runLen > bestLen) { bestLen = runLen; bestStart = runStart; }
+        } else {
+            runStart = -1;
+            runLen = 0;
+        }
+    }
+    if (bestLen < minRunPx) return null;
+    return bestStart + Math.floor(bestLen / 2);
+}
+
+/**
+ * 提取整页的全部横向空白带中心（题目之间的天然分隔线候选）。
+ */
+export function findAllWhitespaceGaps(profile: number[], minRunPx: number = 6, inkThreshold: number = 0.01): number[] {
+    const gaps: number[] = [];
+    let runStart = -1, runLen = 0;
+    for (let y = 0; y < profile.length; y++) {
+        if (profile[y] < inkThreshold) {
+            if (runStart < 0) runStart = y;
+            runLen++;
+        } else {
+            if (runLen >= minRunPx) gaps.push(runStart + Math.floor(runLen / 2));
+            runStart = -1;
+            runLen = 0;
+        }
+    }
+    if (runLen >= minRunPx) gaps.push(runStart + Math.floor(runLen / 2));
+    return gaps;
+}
+
+/**
+ * 有序约束分配切线（纯函数，可单测）：
+ * AI 的题顶提示单调但可能有系统性偏移。切线选择规则：
+ * - 优先取提示下方最近的空白带（题目起始行前面那条缝最有可能是真边界）；
+ * - 提示偏低（在真边界之上）时，取提示上方最近的空白带；
+ * - 都不行则回退提示位置。
+ *
+ * @param gapCenters 升序的空白带中心（px）
+ * @param topHints   每题 top 提示（px，与题数等长，升序）
+ * @param height     图片高度（px）
+ * @param contentTop 页面内容起始行（第一条墨迹行），作为第 1 题顶
+ * @returns N+1 个边界：[第1题顶, 切线1, ..., 切线N-1, 第N题底]
+ */
+export function assignBoundaries(gapCenters: number[], topHints: number[], height: number, contentTop: number = 0): number[] {
+    const n = topHints.length;
+    if (n === 0) return [0, height];
+    const minBlockPx = Math.round(height * 0.02); // 每题至少占 2% 高度
+
+    // 第 1 题顶：页面内容起始处（提示通常落在第一题内部，向上找空白带容易吃掉第一行）
+    const boundaries: number[] = [Math.max(0, contentTop - 6)];
+
+    for (let i = 1; i < n; i++) {
+        const hint = topHints[i];
+        const minPos = boundaries[boundaries.length - 1] + minBlockPx;
+        const below = gapCenters.filter((g) => g <= hint && g > minPos);
+        const above = gapCenters.filter((g) => g > hint && g > minPos);
+        let cut: number;
+        if (below.length > 0) {
+            cut = below[below.length - 1]; // 提示下方（前面）最近的空白带
+        } else if (above.length > 0) {
+            cut = above[0]; // 提示偏低：取上方最近空白带
+        } else {
+            cut = Math.max(minPos, hint); // 无空白带，回退提示
+        }
+        boundaries.push(cut);
+    }
+
+    // 最后一题底：整图底
+    boundaries.push(height);
+    return boundaries;
+}
+
+function loadImage(dataUrl: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('图片加载失败'));
+        img.src = dataUrl;
+    });
+}
+
+/**
+ * 计算整页拆分的题目边界（归一化 0-1 比例，N 道题返回 N+1 条）。
+ * AI 的 bbox 仅作为题顶位置的粗略提示，真正切线由横向空白带投影决定。
+ * 无法计算时（无 bbox / 图片加载失败）返回 null，调用方回退整图。
+ */
+export async function computeQuestionBoundaries(
+    dataUrl: string,
+    bboxes: ([number, number, number, number] | undefined)[]
+): Promise<number[] | null> {
+    const n = bboxes.length;
+    if (n === 0) return null;
+
+    try {
+        const img = await loadImage(dataUrl);
+        const W = img.naturalWidth;
+        const H = img.naturalHeight;
+        if (!W || !H) return null;
+
+        // 单题不需要切
+        if (n === 1) return [0, 1];
+        // 任一题缺 bbox → 无法对齐顺序，放弃自动切分
+        if (bboxes.some((b) => !b)) return null;
+
+        const topHints = bboxes.map((b) => Math.round((b![0] / 1000) * H));
+
+        const canvas = document.createElement('canvas');
+        canvas.width = W;
+        canvas.height = H;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return null;
+        ctx.drawImage(img, 0, 0);
+        const { data } = ctx.getImageData(0, 0, W, H);
+
+        const profile = computeRowInkProfile(data, W, H);
+        const gaps = findAllWhitespaceGaps(profile);
+        const firstInk = profile.findIndex((v) => v >= 0.005);
+        const contentTop = firstInk >= 0 ? firstInk : 0;
+
+        const boundaries = assignBoundaries(gaps, topHints, H, contentTop);
+        return boundaries.map((b) => b / H);
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * 按给定边界（归一化 0-1，N+1 条）把整页裁成 N 张题目图。
+ * 任何异常时对应题回退整图。
+ */
+export async function cropByBoundaries(dataUrl: string, boundaries: number[]): Promise<string[]> {
+    const n = boundaries.length - 1;
+    if (n <= 0) return [dataUrl];
+
+    try {
+        const img = await loadImage(dataUrl);
+        const W = img.naturalWidth;
+        const H = img.naturalHeight;
+        if (!W || !H) return Array(n).fill(dataUrl);
+
+        return boundaries.slice(0, n).map((_, i) => {
+            const top = Math.max(0, Math.min(Math.round(boundaries[i] * H), H - 10));
+            const bottom = Math.max(top + 10, Math.min(Math.round(boundaries[i + 1] * H), H));
+            const out = document.createElement('canvas');
+            out.width = W;
+            out.height = bottom - top;
+            const octx = out.getContext('2d');
+            if (!octx) return dataUrl;
+            octx.drawImage(img, 0, top, W, bottom - top, 0, 0, W, bottom - top);
+            return out.toDataURL('image/jpeg', 0.85);
+        });
+    } catch {
+        return Array(n).fill(dataUrl);
+    }
+}
+
+/**
+ * 按 bbox 直接裁切（归一化 0-1000 [ymin,xmin,ymax,xmax]，四周留 1% 边距）。
+ * 适用于坐标可信的场景（如 Kimi 实例）；异常时回退整图。
+ */
+export async function cropByBbox(
+    dataUrl: string,
+    bbox: [number, number, number, number],
+    padFrac: number = 0.01
+): Promise<string> {
+    try {
+        const img = await loadImage(dataUrl);
+        const W = img.naturalWidth;
+        const H = img.naturalHeight;
+        if (!W || !H) return dataUrl;
+
+        const [ymin, xmin, ymax, xmax] = bbox;
+        const padY = Math.round(H * padFrac);
+        const padX = Math.round(W * padFrac * 0.3);
+        const top = Math.max(0, Math.round((ymin / 1000) * H) - padY);
+        const bottom = Math.min(H, Math.round((ymax / 1000) * H) + padY);
+        const left = Math.max(0, Math.round((xmin / 1000) * W) - padX);
+        const right = Math.min(W, Math.round((xmax / 1000) * W) + padX);
+        if (bottom - top < H * 0.02 || right - left < W * 0.05) return dataUrl;
+
+        const out = document.createElement('canvas');
+        out.width = right - left;
+        out.height = bottom - top;
+        const octx = out.getContext('2d');
+        if (!octx) return dataUrl;
+        octx.drawImage(img, left, top, right - left, bottom - top, 0, 0, out.width, out.height);
+        return out.toDataURL('image/jpeg', 0.85);
+    } catch {
+        return dataUrl;
+    }
+}

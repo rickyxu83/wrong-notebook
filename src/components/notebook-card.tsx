@@ -27,7 +27,7 @@ export function NotebookCard({ id, name, errorCount, onClick, onRename, onDelete
                         <BookOpen className="h-5 w-5 text-primary" />
                         <CardTitle className="text-lg truncate">{name}</CardTitle>
                     </div>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                    <div className="eink-hide flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                         {onRename && (
                             <Button
                                 variant="ghost"

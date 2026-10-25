@@ -3,6 +3,7 @@ import {
     getPrintPreviewCountLabel,
     getPrintPreviewEmptyState,
     getSelectedPrintItems,
+    movePrintItem,
     shouldReserveAnswerSpace,
 } from '@/lib/print-preview';
 
@@ -35,5 +36,19 @@ describe('print preview helpers', () => {
         expect(getPrintPreviewEmptyState(0, 0)).toBe('noItems');
         expect(getPrintPreviewEmptyState(88, 0)).toBe('noSelection');
         expect(getPrintPreviewEmptyState(88, 2)).toBeNull();
+    });
+
+    it('拖拽排序：把后面的题拖到前面', () => {
+        const reordered = movePrintItem(items, 'item-3', 'item-1');
+
+        expect(reordered.map((item) => item.id)).toEqual(['item-3', 'item-1', 'item-2']);
+        // 原数组不被修改
+        expect(items.map((item) => item.id)).toEqual(['item-1', 'item-2', 'item-3']);
+    });
+
+    it('拖拽排序：拖到自身或未知 id 时保持原样', () => {
+        expect(movePrintItem(items, 'item-2', 'item-2')).toBe(items);
+        expect(movePrintItem(items, 'item-x', 'item-2')).toBe(items);
+        expect(movePrintItem(items, 'item-1', 'item-x')).toBe(items);
     });
 });

@@ -5,6 +5,22 @@ import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { BackButton } from "@/components/ui/back-button";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
+import {
+    DndContext,
+    DragEndEvent,
+    KeyboardSensor,
+    PointerSensor,
+    closestCenter,
+    useSensor,
+    useSensors,
+} from "@dnd-kit/core";
+import {
+    SortableContext,
+    rectSortingStrategy,
+    useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { GripVertical } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { ErrorItem, PaginatedResponse } from "@/types/api";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -13,8 +29,51 @@ import {
     getPrintPreviewCountLabel,
     getPrintPreviewEmptyState,
     getSelectedPrintItems,
+    movePrintItem,
     shouldReserveAnswerSpace,
 } from "@/lib/print-preview";
+
+interface SortableItemCardProps {
+    item: ErrorItem;
+    index: number;
+    checked: boolean;
+    questionLabel: string;
+    onToggle: (id: string) => void;
+}
+
+function SortableItemCard({ item, index, checked, questionLabel, onToggle }: SortableItemCardProps) {
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
+
+    return (
+        <div
+            ref={setNodeRef}
+            style={{ transform: CSS.Transform.toString(transform), transition }}
+            className={`flex items-start gap-1 rounded border bg-background p-2 text-xs hover:border-primary/50 ${isDragging ? "opacity-70 border-primary shadow-lg z-10 relative" : ""}`}
+        >
+            <button
+                type="button"
+                {...attributes}
+                {...listeners}
+                className="mt-0.5 cursor-grab touch-none text-muted-foreground hover:text-primary active:cursor-grabbing"
+                aria-label="drag to reorder"
+            >
+                <GripVertical className="h-4 w-4" />
+            </button>
+            <label className="flex items-start gap-2 cursor-pointer flex-1 min-w-0">
+                <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => onToggle(item.id)}
+                    className="mt-0.5 rounded border-gray-300 text-primary focus:ring-primary"
+                />
+                <span className="line-clamp-2">
+                    <span className="font-semibold">{questionLabel}</span>
+                    {item.questionText ? `：${item.questionText}` : ''}
+                </span>
+            </label>
+        </div>
+    );
+}
 
 function PrintPreviewContent() {
     const searchParams = useSearchParams();
@@ -28,6 +87,17 @@ function PrintPreviewContent() {
     const [showQuestionText, setShowQuestionText] = useState(false);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+    const sensors = useSensors(
+        useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+        useSensor(KeyboardSensor),
+    );
+
+    const handleDragEnd = (event: DragEndEvent) => {
+        const { active, over } = event;
+        if (!over || active.id === over.id) return;
+        setItems((prev) => movePrintItem(prev, String(active.id), String(over.id)));
+    };
+
     useEffect(() => {
         fetchItems();
     }, []);
@@ -36,6 +106,8 @@ function PrintPreviewContent() {
             const params = new URLSearchParams(searchParams.toString());
             // 打印预览需要所有符合条件的数据，设置较大的 pageSize
             params.set("pageSize", String(PRINT_PREVIEW_PAGE_SIZE));
+            // 打印预览需要原图，显式声明（列表接口默认不再返回 base64 原图）
+            params.set("includeImage", "1");
             const response = await apiClient.get<PaginatedResponse<ErrorItem>>(`/api/error-items/list?${params.toString()}`);
             setItems(response.items);
             setSelectedIds(new Set(response.items.map((item) => item.id)));
@@ -160,6 +232,9 @@ function PrintPreviewContent() {
                         <div className="flex flex-wrap items-center justify-between gap-2">
                             <div className="text-sm font-medium">
                                 {t.printPreview?.selectItems || 'Select Items'} ({selectedItems.length}/{items.length})
+                                <span className="ml-2 text-xs font-normal text-muted-foreground">
+                                    {t.printPreview?.dragToReorder || '拖动手柄可调整打印顺序'}
+                                </span>
                             </div>
                             <div className="flex gap-2">
                                 <Button variant="outline" size="sm" onClick={selectAllItems}>
@@ -170,27 +245,22 @@ function PrintPreviewContent() {
                                 </Button>
                             </div>
                         </div>
-                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 max-h-44 overflow-y-auto pr-1">
-                            {items.map((item, index) => (
-                                <label
-                                    key={item.id}
-                                    className="flex items-start gap-2 rounded border bg-background p-2 text-xs cursor-pointer hover:border-primary/50"
-                                >
-                                    <input
-                                        type="checkbox"
-                                        checked={selectedIds.has(item.id)}
-                                        onChange={() => toggleSelectedItem(item.id)}
-                                        className="mt-0.5 rounded border-gray-300 text-primary focus:ring-primary"
-                                    />
-                                    <span className="line-clamp-2">
-                                        <span className="font-semibold">
-                                            {t.printPreview?.questionNumber?.replace('{num}', String(index + 1)) || `Question ${index + 1}`}
-                                        </span>
-                                        {item.questionText ? `：${item.questionText}` : ''}
-                                    </span>
-                                </label>
-                            ))}
-                        </div>
+                        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                            <SortableContext items={items.map((item) => item.id)} strategy={rectSortingStrategy}>
+                                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 max-h-44 overflow-y-auto pr-1">
+                                    {items.map((item, index) => (
+                                        <SortableItemCard
+                                            key={item.id}
+                                            item={item}
+                                            index={index}
+                                            checked={selectedIds.has(item.id)}
+                                            questionLabel={t.printPreview?.questionNumber?.replace('{num}', String(index + 1)) || `Question ${index + 1}`}
+                                            onToggle={toggleSelectedItem}
+                                        />
+                                    ))}
+                                </div>
+                            </SortableContext>
+                        </DndContext>
                     </div>
                 </div>
             </div>

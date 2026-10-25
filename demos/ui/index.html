@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>错题本 · 5 款界面设计 Demo</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #f3f4f7;
+        color: #191b23;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Microsoft YaHei", sans-serif;
+      }
+      header {
+        max-width: 1320px;
+        margin: auto;
+        padding: 52px 30px 30px;
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 30px;
+      }
+      .eyebrow {
+        font-size: 11px;
+        letter-spacing: 0.18em;
+        color: #777;
+        font-weight: 700;
+      }
+      h1 {
+        font-size: 38px;
+        letter-spacing: -0.05em;
+        margin: 9px 0;
+      }
+      header p {
+        margin: 0;
+        color: #777;
+      }
+      .local {
+        font-size: 11px;
+        border: 1px solid #d9dce3;
+        border-radius: 99px;
+        padding: 7px 11px;
+        color: #666;
+        white-space: nowrap;
+      }
+      .grid {
+        max-width: 1320px;
+        margin: auto;
+        padding: 0 30px 55px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 24px;
+      }
+      .card {
+        background: #fff;
+        border: 1px solid #e3e5ea;
+        border-radius: 20px;
+        overflow: hidden;
+        box-shadow: 0 8px 30px #252a3a08;
+        transition: 0.2s;
+      }
+      .card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 18px 45px #252a3a12;
+      }
+      .preview {
+        display: block;
+        height: 300px;
+        overflow: hidden;
+        background: #e9ebf0;
+        position: relative;
+      }
+      .preview iframe {
+        width: 1440px;
+        height: 960px;
+        border: 0;
+        transform: scale(0.42);
+        transform-origin: 0 0;
+        pointer-events: none;
+      }
+      .preview:after {
+        content: "打开 Demo ↗";
+        position: absolute;
+        right: 15px;
+        bottom: 15px;
+        background: #171923;
+        color: #fff;
+        padding: 8px 12px;
+        border-radius: 9px;
+        font-size: 11px;
+        box-shadow: 0 5px 20px #0002;
+      }
+      .info {
+        padding: 20px 22px 22px;
+      }
+      .title {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .num {
+        font:
+          700 11px Consolas,
+          monospace;
+        color: #999;
+      }
+      .info h2 {
+        font-size: 19px;
+        margin: 0;
+        letter-spacing: -0.03em;
+      }
+      .palettes {
+        margin-left: auto;
+        display: flex;
+        gap: 5px;
+      }
+      .palettes i {
+        width: 13px;
+        height: 13px;
+        border-radius: 50%;
+        border: 1px solid #0001;
+      }
+      .info p {
+        color: #777;
+        font-size: 12px;
+        margin: 9px 0 0;
+        line-height: 1.7;
+      }
+      .tags {
+        display: flex;
+        gap: 7px;
+        margin-top: 13px;
+      }
+      .tags span {
+        font-size: 10px;
+        background: #f3f4f7;
+        color: #777;
+        padding: 4px 8px;
+        border-radius: 6px;
+      }
+      .footer {
+        text-align: center;
+        color: #999;
+        font-size: 11px;
+        padding: 0 20px 35px;
+      }
+      @media (max-width: 900px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+        .preview {
+          height: 260px;
+        }
+        .preview iframe {
+          transform: scale(0.36);
+        }
+      }
+      @media (max-width: 600px) {
+        header {
+          padding: 34px 18px 22px;
+          display: block;
+        }
+        h1 {
+          font-size: 30px;
+        }
+        .local {
+          display: inline-block;
+          margin-top: 18px;
+        }
+        .grid {
+          padding: 0 14px 35px;
+          gap: 17px;
+        }
+        .preview {
+          height: 205px;
+        }
+        .preview iframe {
+          transform: scale(0.27);
+        }
+        .info {
+          padding: 17px;
+        }
+        .card {
+          border-radius: 16px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <div class="eyebrow">WRONG NOTEBOOK / UI EXPLORATION</div>
+        <h1>同一种进步，五种表达。</h1>
+        <p>功能与数据完全一致，只比较你真正喜欢的视觉方向。</p>
+      </div>
+      <span class="local">● 本地静态页面 · 无需联网 · 不修改正式系统</span>
+    </header>
+    <main class="grid">
+      <a class="card" href="01-clarity-blue.html"
+        ><div class="preview">
+          <iframe
+            src="01-clarity-blue.html"
+            title="清爽学习蓝预览"
+            scrolling="no"
+          ></iframe>
+        </div>
+        <div class="info">
+          <div class="title">
+            <span class="num">01</span>
+            <h2>清爽学习蓝</h2>
+            <div class="palettes">
+              <i style="background: #5564e8"></i
+              ><i style="background: #eef1ff"></i
+              ><i style="background: #f3f6fb"></i>
+            </div>
+          </div>
+          <p>
+            现代、清晰、可信赖。克制的蓝紫色搭配柔和卡片，学习效率和视觉舒适度最均衡。
+          </p>
+          <div class="tags">
+            <span>现代 SaaS</span><span>清爽</span><span>通用推荐</span>
+          </div>
+        </div></a
+      >
+      <a class="card" href="02-warm-journal.html"
+        ><div class="preview">
+          <iframe
+            src="02-warm-journal.html"
+            title="暖纸手账预览"
+            scrolling="no"
+          ></iframe>
+        </div>
+        <div class="info">
+          <div class="title">
+            <span class="num">02</span>
+            <h2>暖纸手账</h2>
+            <div class="palettes">
+              <i style="background: #64745a"></i
+              ><i style="background: #b06b3d"></i
+              ><i style="background: #f2ecdf"></i>
+            </div>
+          </div>
+          <p>
+            纸张纹理、胶带、衬线标题与鼠尾草绿。像一本真正陪伴学习的笔记本，温暖有人情味。
+          </p>
+          <div class="tags">
+            <span>纸质手账</span><span>温暖</span><span>学生气质</span>
+          </div>
+        </div></a
+      >
+      <a class="card" href="03-midnight-focus.html"
+        ><div class="preview">
+          <iframe
+            src="03-midnight-focus.html"
+            title="深色专注预览"
+            scrolling="no"
+          ></iframe>
+        </div>
+        <div class="info">
+          <div class="title">
+            <span class="num">03</span>
+            <h2>深色专注</h2>
+            <div class="palettes">
+              <i style="background: #7bd9ae"></i
+              ><i style="background: #161c25"></i
+              ><i style="background: #0e1218"></i>
+            </div>
+          </div>
+          <p>
+            低干扰石墨色界面与薄荷绿重点。信息密度更高，适合夜间学习和长时间专注使用。
+          </p>
+          <div class="tags">
+            <span>深色模式</span><span>专注</span><span>高效率</span>
+          </div>
+        </div></a
+      >
+      <a class="card" href="04-editorial-minimal.html"
+        ><div class="preview">
+          <iframe
+            src="04-editorial-minimal.html"
+            title="极简编辑预览"
+            scrolling="no"
+          ></iframe>
+        </div>
+        <div class="info">
+          <div class="title">
+            <span class="num">04</span>
+            <h2>极简编辑</h2>
+            <div class="palettes">
+              <i style="background: #d84b37"></i
+              ><i style="background: #171717"></i
+              ><i style="background: #f8f8f5"></i>
+            </div>
+          </div>
+          <p>
+            大胆排版、细线分区、黑白与一点朱红。去掉多余装饰，像学习杂志一样利落、有态度。
+          </p>
+          <div class="tags">
+            <span>编辑设计</span><span>极简</span><span>强排版</span>
+          </div>
+        </div></a
+      >
+      <a class="card" href="05-playful-glass.html"
+        ><div class="preview">
+          <iframe
+            src="05-playful-glass.html"
+            title="活力玻璃预览"
+            scrolling="no"
+          ></iframe>
+        </div>
+        <div class="info">
+          <div class="title">
+            <span class="num">05</span>
+            <h2>活力玻璃</h2>
+            <div class="palettes">
+              <i style="background: #8462e7"></i
+              ><i style="background: #ffdbea"></i
+              ><i style="background: #dff6f0"></i>
+            </div>
+          </div>
+          <p>
+            梦幻渐变、磨砂卡片与圆润形状。轻盈活泼、奖励感更强，让每天录题复习多一点愉悦。
+          </p>
+          <div class="tags">
+            <span>玻璃质感</span><span>活力</span><span>年轻化</span>
+          </div>
+        </div></a
+      >
+    </main>
+    <div class="footer">
+      点击任意方案打开完整页面 · 页面顶部数字可快速切换 · 支持手机宽度与科目筛选
+    </div>
+  </body>
+</html>

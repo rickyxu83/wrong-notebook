@@ -43,15 +43,14 @@ export function ImageCropper({ imageSrc, open, onClose, onCropComplete }: ImageC
 
     function onImageLoad(e: React.SyntheticEvent<HTMLImageElement>) {
         const { width, height } = e.currentTarget;
-        // Start with a centered crop covering most of the image
-        // Since we want free aspect, we just make a box
+        // 默认全选整图：整卷扫描场景下居中小框会悄悄丢掉边缘的题目；用户可自行拖小
         const initialCrop = centerCrop(
             {
                 unit: '%',
-                width: 80,
-                height: 50,
-                x: 10,
-                y: 25
+                width: 100,
+                height: 100,
+                x: 0,
+                y: 0
             },
             width,
             height

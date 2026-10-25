@@ -8,6 +8,7 @@ import { createLogger } from "@/lib/logger";
 import { findParentTagIdForGrade } from "@/lib/tag-recognition";
 import { inferSubjectFromName } from "@/lib/knowledge-tags";
 import { normalizeMistakeStatusForSave } from "@/lib/mistake-status";
+import { ensureInitialSchedule } from "@/lib/review-plan";
 
 const logger = createLogger('api:error-items');
 
@@ -185,6 +186,10 @@ export async function POST(req: Request) {
             });
 
             logger.info({ errorItemId: errorItem.id, tagsCount: errorItem.tags?.length || 0 }, 'ErrorItem created successfully');
+
+            // 建立首个复习排期（录入 1 天后首复习，issue #88）
+            await ensureInitialSchedule(errorItem.id, errorItem.createdAt).catch(() => { });
+
             return NextResponse.json(errorItem, { status: 201 });
         } catch (dbError) {
             logger.error({

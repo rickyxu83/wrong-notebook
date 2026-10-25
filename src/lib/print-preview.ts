@@ -13,6 +13,24 @@ export function shouldReserveAnswerSpace(showAnswers: boolean, showAnalysis: boo
     return !showAnswers && !showAnalysis;
 }
 
+/**
+ * Move an item to the position of another item (drag-and-drop reorder).
+ * Pure function so it can be unit-tested without dnd-kit.
+ */
+export function movePrintItem<T extends PrintSelectableItem>(
+    items: T[],
+    activeId: string,
+    overId: string,
+): T[] {
+    const fromIndex = items.findIndex((item) => item.id === activeId);
+    const toIndex = items.findIndex((item) => item.id === overId);
+    if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return items;
+    const next = [...items];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+    return next;
+}
+
 export function getPrintPreviewCountLabel(totalCount: number, selectedCount: number): string {
     return selectedCount === totalCount
         ? String(totalCount)

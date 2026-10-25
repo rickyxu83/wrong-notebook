@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
     },
     mockAIService: {
         analyzeImage: vi.fn(),
+        analyzeImageMulti: vi.fn(),
+        gradeExamMulti: vi.fn(),
     },
     mockSession: {
         user: {
@@ -35,6 +37,7 @@ vi.mock('@/lib/prisma', () => ({
 // Mock AI service
 vi.mock('@/lib/ai', () => ({
     getAIService: vi.fn(() => mocks.mockAIService),
+    getAIServiceForMultiAnalyze: vi.fn(() => mocks.mockAIService),
 }));
 
 // Mock next-auth
@@ -95,6 +98,35 @@ describe('/api/analyze', () => {
             expect(data.questionText).toBe('求解 x + 2 = 5');
             expect(data.answerText).toBe('x = 3');
             expect(data.knowledgePoints).toHaveLength(2);
+        });
+
+        it('多页批改模式：images 数组应传给 gradeExamMulti', async () => {
+            mocks.mockAIService.gradeExamMulti.mockResolvedValue([
+                { questionText: '题1', answerText: '答1', analysis: '析1', subject: '数学', knowledgePoints: [], isCorrect: false, page: 1 },
+                { questionText: '题2', answerText: '答2', analysis: '析2', subject: '数学', knowledgePoints: [], isCorrect: true, page: 2 },
+            ]);
+            mocks.mockPrismaUser.findUnique.mockResolvedValue({ educationStage: 'junior_high', enrollmentYear: 2024 });
+
+            const request = new Request('http://localhost/api/analyze', {
+                method: 'POST',
+                body: JSON.stringify({
+                    images: ['data:image/jpeg;base64,AAAA', 'data:image/jpeg;base64,BBBB'],
+                    language: 'zh',
+                    grade: true,
+                }),
+                headers: { 'Content-Type': 'application/json' },
+            });
+
+            const response = await POST(request);
+            const data = await response.json();
+
+            expect(response.status).toBe(200);
+            expect(data.questions).toHaveLength(2);
+            expect(data.questions[0].isCorrect).toBe(false);
+            // Data URL 前缀应被剥离，数组原样传给 provider
+            expect(mocks.mockAIService.gradeExamMulti).toHaveBeenCalledWith(
+                ['AAAA', 'BBBB'], 'image/jpeg', 'zh', 7, null, expect.any(String)
+            );
         });
 
         it('应该支持 Data URL 格式的图像', async () => {

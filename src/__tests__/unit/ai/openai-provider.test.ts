@@ -211,6 +211,68 @@ describe('OpenAI Provider 重新解题错因同步', () => {
     });
 });
 
+describe('OpenAI Provider Kimi 推理预算', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    it('kimi-for-coding-highspeed 应使用低思考档，避免正文被推理 token 挤没', async () => {
+        const provider = new OpenAIProvider({
+            apiKey: 'test-key',
+            baseUrl: 'https://api.kimi.com/coding/v1',
+            model: 'kimi-for-coding-highspeed',
+        });
+        mockCompletionCreate.mockResolvedValueOnce({
+            choices: [{
+                finish_reason: 'stop',
+                message: { content: '<question_text>1+1=?</question_text><answer_text>2</answer_text><analysis>加法</analysis>' },
+            }],
+        });
+
+        await provider.analyzeImage('test-image');
+
+        expect(mockCompletionCreate).toHaveBeenCalledWith(expect.objectContaining({
+            model: 'kimi-for-coding-highspeed',
+            reasoning_effort: 'low',
+        }));
+    });
+
+    it('生成相似题也使用低思考档', async () => {
+        const provider = new OpenAIProvider({
+            apiKey: 'test-key',
+            baseUrl: 'https://api.kimi.com/coding/v1',
+            model: 'k3.1-pro-highspeed',
+        });
+        mockCompletionCreate.mockResolvedValueOnce({
+            choices: [{
+                finish_reason: 'stop',
+                message: { content: '<question_text>2+2=?</question_text><answer_text>4</answer_text><analysis>加法</analysis>' },
+            }],
+        });
+
+        await provider.generateSimilarQuestion('1+1=?', ['基础算术'], 'zh', 'easy');
+
+        expect(mockCompletionCreate).toHaveBeenCalledWith(expect.objectContaining({
+            model: 'k3.1-pro-highspeed',
+            reasoning_effort: 'low',
+        }));
+    });
+
+    it('max_tokens 截断时返回明确错误，不再报 Empty response from AI', async () => {
+        const provider = new OpenAIProvider({
+            apiKey: 'test-key',
+            baseUrl: 'https://api.kimi.com/coding/v1',
+            model: 'kimi-for-coding-highspeed',
+        });
+        mockCompletionCreate.mockResolvedValueOnce({
+            choices: [{ finish_reason: 'length', message: { content: '' } }],
+            usage: { completion_tokens: 16384 },
+        });
+
+        await expect(provider.analyzeImage('test-image')).rejects.toThrow('AI_OUTPUT_TRUNCATED');
+    });
+});
+
 describe('OpenAI Provider 错误处理', () => {
     let provider: OpenAIProvider;
 
