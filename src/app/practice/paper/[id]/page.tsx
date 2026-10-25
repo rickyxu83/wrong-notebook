@@ -56,6 +56,7 @@ export default function PracticePaperPage() {
     const [paper, setPaper] = useState<Paper | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [answers, setAnswers] = useState<Record<string, AnswerState>>({});
+    const [retrying, setRetrying] = useState(false);
     // 每题手写演算区开关
     const [sketchOpen, setSketchOpen] = useState<Record<string, boolean>>({});
     const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -79,18 +80,36 @@ export default function PracticePaperPage() {
         }
     };
 
+    const startPolling = () => {
+        stopPolling();
+        pollTimerRef.current = setInterval(async () => {
+            const d = await fetchPaper();
+            if (d && d.status !== "running") stopPolling();
+        }, 3000);
+    };
+
     useEffect(() => {
         fetchPaper().then((data) => {
-            if (data && data.status === "running") {
-                pollTimerRef.current = setInterval(async () => {
-                    const d = await fetchPaper();
-                    if (d && d.status !== "running") stopPolling();
-                }, 3000);
-            }
+            if (data && data.status === "running") startPolling();
         });
         return () => stopPolling();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [paperId]);
+
+    const retryFailed = async () => {
+        if (!paper || retrying) return;
+        setRetrying(true);
+        try {
+            await apiClient.post(`/api/practice/papers/${paper.id}`, { action: "retryFailed" });
+            const data = await fetchPaper();
+            if (data?.status === "running") startPolling();
+        } catch (e) {
+            console.error(e);
+            alert(t.practicePaper?.retryRequestFailed || "重试失败，请稍后再试");
+        } finally {
+            setRetrying(false);
+        }
+    };
 
     const getAnswerState = (jobId: string): AnswerState =>
         answers[jobId] || { showAnswer: false, submitted: false, isCorrect: null };
@@ -140,7 +159,7 @@ export default function PracticePaperPage() {
                         {t.common?.back || "返回"}
                     </Button>
                     <div className="flex items-center gap-2">
-                        {paper.doneCount > 0 && (
+                        {paper.status !== "running" && paper.doneCount > 0 && (
                             <Link href={`/practice/paper/${paper.id}/print`} target="_blank">
                                 <Button variant="outline" size="sm">
                                     <Printer className="mr-2 h-4 w-4" />
@@ -166,9 +185,15 @@ export default function PracticePaperPage() {
                         </p>
                     )}
                     {(paper.status === "partial" || paper.failedCount > 0) && (
-                        <p className="text-sm text-orange-600">
-                            {t.practicePaper?.partialHint || "部分题目生成失败"}（{paper.failedCount}）
-                        </p>
+                        <div className="flex flex-wrap items-center justify-center gap-3 text-sm text-orange-600">
+                            <span>{t.practicePaper?.partialHint || "部分题目生成失败"}（{paper.failedCount}）</span>
+                            {paper.status !== "running" && paper.failedCount > 0 && (
+                                <Button variant="outline" size="sm" onClick={retryFailed} disabled={retrying}>
+                                    {retrying && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                    {t.practicePaper?.retryFailed || "重试失败题"}
+                                </Button>
+                            )}
+                        </div>
                     )}
                 </div>
 

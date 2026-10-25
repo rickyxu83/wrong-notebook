@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
         findMany: vi.fn(),
         findUnique: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn(),
         groupBy: vi.fn(),
     },
     mockBuildErrorItemWhere: vi.fn(),
@@ -47,11 +48,20 @@ vi.mock('next-auth', () => ({
 vi.mock('@/lib/auth', () => ({ authOptions: {} }));
 
 import { POST as PAPERS_POST } from '@/app/api/practice/papers/route';
+import { POST as PAPER_DETAIL_POST } from '@/app/api/practice/papers/[id]/route';
 import { runPracticePaper, createPracticePaper } from '@/lib/practice-jobs';
 import { getServerSession } from 'next-auth';
 
 function postRequest(body: unknown) {
     return new Request('http://localhost/api/practice/papers', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: { 'Content-Type': 'application/json' },
+    });
+}
+
+function retryRequest(body: unknown = { action: 'retryFailed' }) {
+    return new Request('http://localhost/api/practice/papers/paper-1', {
         method: 'POST',
         body: JSON.stringify(body),
         headers: { 'Content-Type': 'application/json' },
@@ -141,6 +151,48 @@ describe('/api/practice/papers', () => {
         vi.mocked(getServerSession).mockResolvedValue(null);
         const response = await PAPERS_POST(postRequest({ errorItemIds: ['a'] }));
         expect(response.status).toBe(401);
+    });
+});
+
+describe('POST /api/practice/papers/[id] 重试失败题', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        vi.mocked(getServerSession).mockResolvedValue(mocks.mockSession);
+        mocks.mockPrismaUser.findUnique.mockResolvedValue({ id: 'user-123' });
+        mocks.mockPrismaPracticePaper.findUnique.mockResolvedValue({ id: 'paper-1', userId: 'user-123', status: 'partial' });
+        mocks.mockPrismaPracticeJob.findMany.mockResolvedValue([{ id: 'job-failed' }]);
+        mocks.mockPrismaPracticeJob.updateMany.mockResolvedValue({ count: 1 });
+        mocks.mockPrismaPracticePaper.update.mockResolvedValue({});
+        mocks.mockPrismaPracticeJob.groupBy.mockResolvedValue([]);
+    });
+
+    it('只重置失败题并重新执行整卷', async () => {
+        const response = await PAPER_DETAIL_POST(retryRequest(), { params: Promise.resolve({ id: 'paper-1' }) });
+        const data = await response.json();
+
+        expect(response.status).toBe(202);
+        expect(data.retrying).toBe(1);
+        expect(mocks.mockPrismaPracticeJob.updateMany).toHaveBeenCalledWith({
+            where: { paperId: 'paper-1', status: 'failed' },
+            data: { status: 'pending', error: null, resultJson: null, completedAt: null },
+        });
+        expect(mocks.mockPrismaPracticePaper.update).toHaveBeenCalledWith({
+            where: { id: 'paper-1' },
+            data: { status: 'running', completedAt: null },
+        });
+    });
+
+    it('没有失败题时返回 400', async () => {
+        mocks.mockPrismaPracticeJob.findMany.mockResolvedValue([]);
+        const response = await PAPER_DETAIL_POST(retryRequest(), { params: Promise.resolve({ id: 'paper-1' }) });
+        expect(response.status).toBe(400);
+    });
+
+    it('不能重试其他用户的试卷', async () => {
+        mocks.mockPrismaPracticePaper.findUnique.mockResolvedValue({ id: 'paper-1', userId: 'another-user', status: 'partial' });
+        const response = await PAPER_DETAIL_POST(retryRequest(), { params: Promise.resolve({ id: 'paper-1' }) });
+        expect(response.status).toBe(404);
+        expect(mocks.mockPrismaPracticeJob.updateMany).not.toHaveBeenCalled();
     });
 });
 

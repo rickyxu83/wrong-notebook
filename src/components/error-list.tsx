@@ -191,6 +191,17 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
         });
     };
 
+    const currentPageAllSelected = items.length > 0 && items.every((item) => selectedIds.has(item.id));
+
+    const toggleSelectCurrentPage = () => {
+        setSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (currentPageAllSelected) items.forEach((item) => next.delete(item.id));
+            else items.forEach((item) => next.add(item.id));
+            return next;
+        });
+    };
+
     const handleBatchDelete = async () => {
         if (selectedIds.size === 0) return;
 
@@ -299,7 +310,7 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
 
 
     return (
-        <div className="space-y-6">
+        <div className={isSelectMode ? "space-y-6 pb-36 md:pb-24" : "space-y-6"}>
             <div className="flex flex-col sm:flex-row gap-4">
                 <div className="relative w-full sm:flex-1">
                     <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
@@ -464,8 +475,16 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
                                     />
                                 </div>
                             )}
-                            <Link href={isSelectMode ? "#" : `/error-items/${item.id}`} onClick={(e) => isSelectMode && e.preventDefault()}>
-                                <Card className="h-full hover:border-primary/50 transition-colors cursor-pointer gap-2 pt-4">
+                            <Link
+                                href={isSelectMode ? "#" : `/error-items/${item.id}`}
+                                onClick={(e) => {
+                                    if (isSelectMode) {
+                                        e.preventDefault();
+                                        toggleSelectItem(item.id, e);
+                                    }
+                                }}
+                            >
+                                <Card className={`h-full hover:border-primary/50 transition-colors cursor-pointer gap-2 pt-4 ${selectedIds.has(item.id) ? "border-primary bg-primary/5" : ""}`}>
                                     <CardHeader className="pb-0">
                                         <div className="flex justify-between items-start">
                                             <Badge
@@ -554,25 +573,27 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
 
             {/* 多选模式底部操作栏 */}
             {isSelectMode && (
-                <div className="fixed bottom-0 left-0 right-0 bg-background border-t shadow-lg p-4 z-50">
-                    <div className="max-w-6xl mx-auto flex items-center justify-between gap-4">
-                        <span className="text-sm text-muted-foreground">
-                            {(t.notebook?.selectedCount || "{count} selected").replace("{count}", selectedIds.size.toString())}
-                        </span>
-                        <div className="flex gap-2">
-                            <Button
-                                variant="outline"
-                                onClick={toggleSelectMode}
-                            >
-                                <X className="mr-2 h-4 w-4" />
+                <div className="fixed bottom-[calc(74px+env(safe-area-inset-bottom))] md:bottom-0 left-0 right-0 bg-background/95 backdrop-blur border-t shadow-lg p-3 md:p-4 z-40">
+                    <div className="max-w-6xl mx-auto space-y-3">
+                        <div className="flex items-center justify-between gap-3">
+                            <span className="text-sm font-medium">
+                                {(t.notebook?.selectedCount || "{count} selected").replace("{count}", selectedIds.size.toString())}
+                            </span>
+                            <Button variant="ghost" size="sm" onClick={toggleSelectCurrentPage} disabled={items.length === 0}>
+                                <ListChecks className="mr-1.5 h-4 w-4" />
+                                {currentPageAllSelected ? "取消本页" : "全选本页"}
+                            </Button>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 sm:flex sm:justify-end">
+                            <Button variant="outline" onClick={toggleSelectMode}>
+                                <X className="mr-1.5 h-4 w-4" />
                                 {t.notebook?.cancelSelect || "取消"}
                             </Button>
-                            {/* 选中出卷 */}
                             <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
-                                    <Button variant="outline" disabled={selectedIds.size === 0 || isCreatingPaper}>
-                                        {isCreatingPaper ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
-                                        {t.practicePaper?.createSelected || "选中出卷"}
+                                    <Button className="w-full sm:w-auto" disabled={selectedIds.size === 0 || isCreatingPaper}>
+                                        {isCreatingPaper ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <FileText className="mr-1.5 h-4 w-4" />}
+                                        {language === 'zh' ? '生成试卷' : (t.practicePaper?.createSelected || 'Generate')}
                                     </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
@@ -589,8 +610,8 @@ export function ErrorList({ subjectId, subjectName }: ErrorListProps = {}) {
                                 onClick={handleBatchDelete}
                                 disabled={selectedIds.size === 0 || isDeleting}
                             >
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                {t.notebook?.deleteSelected || "删除选中"}
+                                <Trash2 className="mr-1.5 h-4 w-4" />
+                                {language === 'zh' ? '删除' : (t.notebook?.deleteSelected || 'Delete')}
                             </Button>
                         </div>
                     </div>

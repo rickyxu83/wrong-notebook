@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
-import { unauthorized, internalError, notFound } from "@/lib/api-errors";
+import { unauthorized, internalError, notFound, badRequest } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
+import { runPracticePaper } from "@/lib/practice-jobs";
 
 const logger = createLogger('api:practice:papers:[id]');
 
@@ -75,5 +76,54 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     } catch (error) {
         logger.error({ error }, 'Error fetching practice paper');
         return internalError("Failed to fetch practice paper");
+    }
+}
+
+/** 重试整卷中失败的题目；已完成题目保持不变。 */
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) return unauthorized("Authentication required");
+
+    try {
+        const { id } = await params;
+        const body = await req.json().catch(() => ({}));
+        if (body.action !== "retryFailed") return badRequest("Unsupported action");
+
+        const user = await prisma.user.findUnique({
+            where: { email: session.user.email },
+            select: { id: true },
+        });
+        if (!user) return unauthorized("No user found in DB");
+
+        const paper = await prisma.practicePaper.findUnique({
+            where: { id },
+            select: { id: true, userId: true, status: true },
+        });
+        if (!paper || paper.userId !== user.id) return notFound("Paper not found");
+        if (paper.status === "running") return badRequest("Paper is still running");
+
+        const failedJobs = await prisma.practiceJob.findMany({
+            where: { paperId: id, status: "failed" },
+            select: { id: true },
+        });
+        if (failedJobs.length === 0) return badRequest("No failed questions to retry");
+
+        await prisma.practiceJob.updateMany({
+            where: { paperId: id, status: "failed" },
+            data: { status: "pending", error: null, resultJson: null, completedAt: null },
+        });
+        await prisma.practicePaper.update({
+            where: { id },
+            data: { status: "running", completedAt: null },
+        });
+
+        void runPracticePaper(id).catch((error) => {
+            logger.error({ error, paperId: id }, 'Unhandled practice paper retry error');
+        });
+        logger.info({ paperId: id, count: failedJobs.length }, 'Retrying failed practice questions');
+        return NextResponse.json({ retrying: failedJobs.length }, { status: 202 });
+    } catch (error) {
+        logger.error({ error }, 'Error retrying practice paper');
+        return internalError("Failed to retry practice paper");
     }
 }

@@ -69,12 +69,12 @@ export default function PracticePaperPrintPage() {
     return (
         <main className="min-h-screen bg-background">
             <div className="max-w-3xl mx-auto p-6">
-                <div className="flex justify-between items-center mb-6 print:hidden">
+                <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-6 print:hidden">
                     <Button variant="ghost" onClick={() => router.back()}>
                         <ArrowLeft className="mr-2 h-4 w-4" />
                         {t.common?.back || "返回"}
                     </Button>
-                    <div className="flex items-center gap-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
                         <label className="flex items-center gap-2 text-sm cursor-pointer">
                             <input
                                 type="checkbox"
@@ -91,7 +91,7 @@ export default function PracticePaperPrintPage() {
                 </div>
 
                 {/* 卷头 */}
-                <div className="flex gap-4 text-sm text-muted-foreground border-b pb-3 mb-6">
+                <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-muted-foreground border-b pb-3 mb-6">
                     <span className="font-medium text-base">{t.practicePaper?.title || "举一反三试卷"}</span>
                     <span>{t.practice?.difficulty?.label || "难度"}: {DIFFICULTY_LABELS[paper.difficulty] || paper.difficulty}</span>
                     <span>{new Date(paper.createdAt).toLocaleDateString()}</span>

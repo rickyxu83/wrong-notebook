@@ -321,6 +321,8 @@ export const translations = {
             createFailed: "Failed to create paper. Please try again.",
             showSketch: "Sketch pad",
             hideSketch: "Hide sketch pad",
+            retryFailed: "Retry failed questions",
+            retryRequestFailed: "Retry failed. Please try again later.",
         },
         multiReview: {
             title: "{count} questions detected",
@@ -1081,6 +1083,8 @@ export const translations = {
             createFailed: "创建试卷失败，请重试。",
             showSketch: "手写演算",
             hideSketch: "收起演算区",
+            retryFailed: "重试失败题",
+            retryRequestFailed: "重试请求失败，请稍后再试。",
         },
         multiReview: {
             title: "识别到 {count} 道题",

@@ -397,13 +397,16 @@ export class OpenAIProvider implements AIService {
                 ],
                 // response_format: { type: "json_object" }, // Removing to improve compatibility with 3rd party providers
                 max_tokens: 8192,
+                ...(this.supportsLowReasoning ? { reasoning_effort: 'low' as const } : {}),
             });
 
-            const text = response.choices[0]?.message?.content || "";
+            const choice = response.choices[0];
+            const text = choice?.message?.content || "";
 
             logger.box('🤖 AI Raw Response', text);
 
-            if (!text) throw new Error("Empty response from AI");
+            if (choice?.finish_reason === 'length') throw new Error("AI_OUTPUT_TRUNCATED");
+            if (!text) throw new Error("AI_RESPONSE_ERROR: Empty response from AI");
             const parsedResult = this.parseResponse(text);
 
             logger.box('✅ Parsed & Validated Result', JSON.stringify(parsedResult, null, 2));
