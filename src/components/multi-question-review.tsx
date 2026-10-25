@@ -8,7 +8,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { NotebookSelector } from "@/components/notebook-selector";
 import { InlineMath } from "@/components/inline-math";
-import { Loader2, Save, X, ImagePlus } from "lucide-react";
+import { MarkdownRenderer } from "@/components/markdown-renderer";
+import { Loader2, Save, X, ImagePlus, Pencil, Eye } from "lucide-react";
 import { ParsedQuestion } from "@/lib/ai";
 import { apiClient } from "@/lib/api-client";
 import { cropByBoundaries, computeQuestionBoundaries } from "@/lib/image-utils";
@@ -52,6 +53,17 @@ export function MultiQuestionReview({ questions, pageImages, defaultSubjectId, o
     const [previews, setPreviews] = useState<string[] | null>(null);
     const [customImages, setCustomImages] = useState<Record<number, string>>({});
     const [cropTarget, setCropTarget] = useState<number | null>(null); // 正在为哪一道题手动裁图
+    // 默认展示渲染后的数学公式；只有需要修改时才进入源码编辑
+    const [editingItems, setEditingItems] = useState<Set<number>>(new Set());
+
+    const toggleEditing = (index: number) => {
+        setEditingItems((prev) => {
+            const next = new Set(prev);
+            if (next.has(index)) next.delete(index);
+            else next.add(index);
+            return next;
+        });
+    };
 
     // 挂载后自动计算建议切线（AI bbox 提示 + 空白带精修）
     useEffect(() => {
@@ -231,6 +243,16 @@ export function MultiQuestionReview({ questions, pageImages, defaultSubjectId, o
                                         <InlineMath content={kp} />
                                     </Badge>
                                 ))}
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="ml-auto h-7 px-2 text-xs"
+                                    onClick={() => toggleEditing(i)}
+                                    disabled={saving}
+                                >
+                                    {editingItems.has(i) ? <><Eye className="mr-1 h-3.5 w-3.5" />预览</> : <><Pencil className="mr-1 h-3.5 w-3.5" />{t.common?.edit || "编辑"}</>}
+                                </Button>
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-3">
@@ -261,35 +283,59 @@ export function MultiQuestionReview({ questions, pageImages, defaultSubjectId, o
                                     </Button>
                                 </div>
                             )}
-                            <Textarea
-                                value={q.questionText}
-                                onChange={(e) => patch(i, { questionText: e.target.value })}
-                                rows={4}
-                                disabled={!q.included || saving}
-                                className="font-mono text-sm"
-                            />
-                            <div className="grid gap-3 md:grid-cols-2">
-                                <div>
-                                    <p className="text-xs text-muted-foreground mb-1">{t.detail?.correctAnswer || "答案"}</p>
+                            {editingItems.has(i) ? (
+                                <>
                                     <Textarea
-                                        value={q.answerText}
-                                        onChange={(e) => patch(i, { answerText: e.target.value })}
-                                        rows={2}
+                                        value={q.questionText}
+                                        onChange={(e) => patch(i, { questionText: e.target.value })}
+                                        rows={4}
                                         disabled={!q.included || saving}
                                         className="font-mono text-sm"
                                     />
-                                </div>
-                                <div>
-                                    <p className="text-xs text-muted-foreground mb-1">{t.detail?.analysis || "解析"}</p>
-                                    <Textarea
-                                        value={q.analysis}
-                                        onChange={(e) => patch(i, { analysis: e.target.value })}
-                                        rows={2}
-                                        disabled={!q.included || saving}
-                                        className="font-mono text-sm"
-                                    />
-                                </div>
-                            </div>
+                                    <div className="grid gap-3 md:grid-cols-2">
+                                        <div>
+                                            <p className="text-xs text-muted-foreground mb-1">{t.detail?.correctAnswer || "答案"}</p>
+                                            <Textarea
+                                                value={q.answerText}
+                                                onChange={(e) => patch(i, { answerText: e.target.value })}
+                                                rows={2}
+                                                disabled={!q.included || saving}
+                                                className="font-mono text-sm"
+                                            />
+                                        </div>
+                                        <div>
+                                            <p className="text-xs text-muted-foreground mb-1">{t.detail?.analysis || "解析"}</p>
+                                            <Textarea
+                                                value={q.analysis}
+                                                onChange={(e) => patch(i, { analysis: e.target.value })}
+                                                rows={2}
+                                                disabled={!q.included || saving}
+                                                className="font-mono text-sm"
+                                            />
+                                        </div>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="rounded-md border bg-muted/20 px-3 py-2 min-w-0">
+                                        <MarkdownRenderer content={q.questionText} />
+                                    </div>
+                                    <div className="grid gap-3 md:grid-cols-2">
+                                        <div className="min-w-0">
+                                            <p className="text-xs text-muted-foreground mb-1">{t.detail?.correctAnswer || "答案"}</p>
+                                            <div className="rounded-md border bg-muted/20 px-3 py-2">
+                                                <MarkdownRenderer content={q.answerText} />
+                                            </div>
+                                        </div>
+                                        <div className="min-w-0">
+                                            <p className="text-xs text-muted-foreground mb-1">{t.detail?.analysis || "解析"}</p>
+                                            <div className="rounded-md border bg-muted/20 px-3 py-2">
+                                                <MarkdownRenderer content={q.analysis} />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </>
+                            )}
                         </CardContent>
                     </Card>
                 ))}
